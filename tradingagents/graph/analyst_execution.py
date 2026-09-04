@@ -77,18 +77,6 @@ def build_analyst_execution_plan(
     return AnalystExecutionPlan(specs=specs)
 
 
-def get_initial_analyst_node(plan: AnalystExecutionPlan) -> str:
-    """返回 CLI 启动阶段用于展示的首个分析师节点。
-
-    父图实际会并行 fan-out 到全部已选分析师；这个兼容辅助函数只负责
-    CLI 在第一批 LangGraph 增量到达前的进度展示，不改变执行拓扑。
-    """
-
-    if not plan.specs:
-        raise ValueError("分析师执行计划不能为空")
-    return plan.specs[0].agent_node
-
-
 class AnalystWallTimeTracker:
     """记录并行分析师的墙钟耗时。"""
 
