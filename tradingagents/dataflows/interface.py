@@ -23,7 +23,6 @@ from .cninfo import get_cninfo_news
 from .config import get_config
 from .errors import NoMarketDataError, VendorNotConfiguredError, VendorRateLimitError
 from .fred import get_macro_data as get_fred_macro_data
-from .polymarket import get_prediction_markets as get_polymarket_prediction_markets
 from .stockstats_utils import get_stock_stats_indicators_window
 
 logger = logging.getLogger(__name__)
@@ -45,13 +44,9 @@ TOOLS_CATEGORIES = {
         "tools": ["get_news", "get_global_news", "get_insider_transactions"],
     },
     "macro_data": {"description": "Macroeconomic indicators", "tools": ["get_macro_indicators"]},
-    "prediction_markets": {
-        "description": "Market-implied probabilities for forward-looking events",
-        "tools": ["get_prediction_markets"],
-    },
 }
 
-VENDOR_LIST = ["baostock", "akshare", "cninfo", "alpha_vantage", "fred", "polymarket"]
+VENDOR_LIST = ["baostock", "akshare", "cninfo", "alpha_vantage", "fred"]
 
 VENDOR_METHODS = {
     "get_stock_data": {
@@ -94,7 +89,6 @@ VENDOR_METHODS = {
         "akshare": get_akshare_macro_data,
         "fred": get_fred_macro_data,
     },
-    "get_prediction_markets": {"polymarket": get_polymarket_prediction_markets},
 }
 
 
@@ -164,7 +158,7 @@ def route_to_vendor(method: str, *args, **kwargs):
         )
 
     if first_error is not None:
-        if category in {"macro_data", "prediction_markets"} or method in {"get_global_news", "get_insider_transactions"}:
+        if category == "macro_data" or method in {"get_global_news", "get_insider_transactions"}:
             return (
                 f"DATA_UNAVAILABLE: optional {method} could not be retrieved "
                 f"({first_error}). Proceed without it; do not fabricate values."
