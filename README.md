@@ -37,7 +37,7 @@
 | Hybrid RAG | Qdrant Dense + BM25 + RRF + 可选 Reranker | 为研究结论提供可追溯知识证据 |
 | 多轮会话 | Router + thread_id + SQLite | 复用已审计研究上下文 |
 | 服务化 | FastAPI / Chat UI / Docker Compose | 提升可复现性和演示效率 |
-| 可观测性 | LangSmith Trace | 观察 LLM / Tool / Agent 调用链 |
+| 可观测性 | LangSmith Trace | 观察 LLM / Tool / Agent 调用链 |\n| Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |\n| Outcome Backtest | Rating vs. realized / benchmark return | 将“研究质量评估”和“市场结果评估”分离 |
 
 ## 系统架构
 
@@ -90,7 +90,7 @@ flowchart TD
 | 知识检索 | 非核心 | Qdrant Dense + BM25 + RRF + PIT filter |
 | 交互 | CLI 为主 | 多轮 Conversation Router + SQLite + Web Chat |
 | 部署 | 本地执行 | FastAPI + Docker Compose |
-| 验证 | 上游测试 | 新增 Agent / RAG / MCP / PIT / Conversation 回归测试 |
+| 验证 | 上游测试 | Agent / RAG / MCP / PIT / Conversation + Evaluation 回归测试 |
 
 详细设计见 [docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)。
 
@@ -264,7 +264,7 @@ Portfolio Manager 负责形成最终观点，本身不适合作为自己的校�
 
 若发现实质问题，可通过 LangGraph 条件边触发有限次数修订。
 
-### 为什么要做 PIT-aware RAG
+### 为什么单独做 Agent Evaluation\n\n股票涨跌不能直接回答“Agent 工程是否可靠”。因此项目把两类评估拆开：\n\n- **Agent Evaluation**：工具是否选对、参数日期是否越界、轨迹是否符合预期、最终报告数字是否能在上游证据中找到；\n- **Outcome Backtest**：历史研究评级之后的实际收益、相对基准收益、方向命中率、回撤和 Sharpe。\n\n这样可以避免把偶然的市场结果误当成 Agent 架构质量，也避免只看单元测试而忽略最终输出。\n\n### 为什么要做 PIT-aware RAG
 
 普通 RAG 只关注“相关不相关”，历史投研还必须回答“当时能不能看到”。因此检索同时约束：
 
@@ -303,7 +303,7 @@ publish_date <= as_of_date
 4. `tradingagents/mcp/`
 5. `tradingagents/rag/`
 6. `tradingagents/conversation/`
-7. `service/app.py`
+7. `tradingagents/evaluation/`\n8. `tradingagents/backtest/`\n9. `service/app.py`
 
 ---
 
