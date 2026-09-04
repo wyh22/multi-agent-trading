@@ -32,7 +32,7 @@ jobs:
 
       - name: Legacy vendor guard
         run: |
-          if git grep -nEi 'yfinance|y_finance|ifind|51ifind|同花顺|(_ths\\b|\\bths\\b)' -- .; then
+          if git grep -nEi 'yfinance|y_finance|ifind|51ifind|同花顺|(_ths\\b|\\bths\\b)' -- . ':!.github/workflows/ci.yml'; then
             echo "Legacy data-vendor references are not allowed in the public A-share codebase."
             exit 1
           fi
