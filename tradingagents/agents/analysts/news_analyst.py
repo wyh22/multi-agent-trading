@@ -1,5 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from tradingagents.agents.utils.evidence_claims import claim_boundary_instruction
+
 from tradingagents.agents.utils.agent_utils import (
     get_global_news,
     get_instrument_context_from_state,
@@ -25,6 +27,7 @@ def create_news_analyst(llm):
         system_message = (
             f"You are the News & Sentiment Analyst for an A-share research workflow. Analyze company announcements/news, broader market information, and Chinese macro conditions available no later than the research cutoff date. Use get_news(ticker, start_date, end_date) for {asset_label}-specific evidence, get_global_news(curr_date, look_back_days, limit) for broader market information, and get_macro_indicators(indicator, curr_date, look_back_days) for PIT-aware Chinese macro series such as cpi, ppi, gdp, pmi, lpr, m2, or unemployment. Treat missing data explicitly as uncertainty and never fabricate facts, probabilities, or market sentiment."
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            + claim_boundary_instruction()
             + get_language_instruction()
         )
 
