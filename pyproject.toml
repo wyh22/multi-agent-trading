@@ -62,6 +62,7 @@ dev = [
 Repository = "https://github.com/wyh22/multi-agent-trading"
 Documentation = "https://github.com/wyh22/multi-agent-trading#readme"
 Issues = "https://github.com/wyh22/multi-agent-trading/issues"
+Upstream = "https://github.com/TauricResearch/TradingAgents"
 
 [tool.setuptools.packages.find]
 include = ["tradingagents*", "cli*"]
