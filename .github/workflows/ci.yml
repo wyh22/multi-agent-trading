@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - recruitment-polish-v1
   pull_request:
     branches:
       - main
@@ -38,6 +37,15 @@ jobs:
 
       - name: Compile
         run: python -m compileall -q tradingagents service scripts
+
+      - name: Import smoke tests
+        run: |
+          python -c "from service.app import app; assert app.title"
+          python -c "import tradingagents.mcp.server"
+          python -c "from tradingagents.discovery import DiscoveryCoordinatorAgent"
+          python -c "from tradingagents.evaluation import AgentEvalDataset"
+          python -c "from tradingagents.backtest import BacktestRunner"
+          python -m cli.main --help > /dev/null
 
       - name: Test
         run: pytest -q
