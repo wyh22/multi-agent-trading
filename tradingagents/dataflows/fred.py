@@ -11,8 +11,8 @@ the routing layer treats it as "unavailable" rather than a hard crash.
 import logging
 import os
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
-import pytz
 import requests
 
 from .errors import VendorNotConfiguredError
@@ -23,9 +23,9 @@ FRED_API_BASE = "https://api.stlouisfed.org/fred"
 
 # FRED's realtime clock runs on US Central (St. Louis Fed). It rejects a
 # realtime date in its own future with a 400, so the vintage pin is clamped to
-# this rather than the caller's local date (#1275). pytz (already a dependency)
-# bundles its own tz database, so this works where system tzdata is absent.
-FRED_TZ = pytz.timezone("America/Chicago")
+# this rather than the caller's local date. Python 3.11+ ships the zoneinfo API,
+# avoiding an accidental dependency on a package that used to arrive transitively.
+FRED_TZ = ZoneInfo("America/Chicago")
 
 # Network timeout (seconds) so a stalled request can't hang the agents,
 # mirroring the Alpha Vantage client.

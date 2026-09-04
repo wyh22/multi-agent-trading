@@ -8,26 +8,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import yfinance as yf
 from langgraph.prebuilt import ToolNode
 
-# Import the abstract tool methods from agent_utils
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
-    get_balance_sheet,
-    get_cashflow,
-    get_fundamentals,
-    get_global_news,
-    get_income_statement,
-    get_indicators,
-    get_insider_transactions,
-    get_macro_indicators,
-    get_news,
-    get_prediction_markets,
-    get_stock_data,
-    get_verified_market_snapshot,
     resolve_instrument_identity,
 )
+from tradingagents.agents.utils.tool_registry import build_tool_groups
 from tradingagents.agents.utils.memory import TradingMemoryLog
 from tradingagents.dataflows.config import set_config
 from tradingagents.dataflows.utils import safe_ticker_component
@@ -81,7 +68,7 @@ class TradingAgentsGraph:
 
     def __init__(
         self,
-        selected_analysts=("market", "social", "news", "fundamentals"),
+        selected_analysts=("market", "news", "fundamentals"),
         debug=False,
         config: dict[str, Any] = None,
         callbacks: list | None = None,
@@ -130,19 +117,21 @@ class TradingAgentsGraph:
 
         self.memory_log = TradingMemoryLog(self.config)
 
-        # Create tool nodes
+        # Build one consistent tool surface. With MCP enabled this loads the
+        # remote Finance MCP tools; otherwise it keeps deterministic local tools.
+        self.tool_groups = build_tool_groups(self.config)
         self.tool_nodes = self._create_tool_nodes()
 
-        # Initialize components
+        # v1.4 retains only the bounded Portfolio Manager -> Auditor revision loop.
         self.conditional_logic = ConditionalLogic(
-            max_debate_rounds=self.config["max_debate_rounds"],
-            max_risk_discuss_rounds=self.config["max_risk_discuss_rounds"],
+            max_audit_rounds=self.config.get("max_audit_rounds", 2),
         )
         self.graph_setup = GraphSetup(
             self.quick_thinking_llm,
             self.deep_thinking_llm,
             self.tool_nodes,
             self.conditional_logic,
+            tool_groups=self.tool_groups,
         )
 
         self.propagator = Propagator(
@@ -208,98 +197,72 @@ class TradingAgentsGraph:
         return kwargs
 
     def _create_tool_nodes(self) -> dict[str, ToolNode]:
-        """Create tool nodes for different data sources using abstract methods."""
+        """Wrap the configured market/news/fundamentals tool groups."""
         return {
-            "market": ToolNode(
-                [
-                    # Core stock data tools
-                    get_stock_data,
-                    # Technical indicators
-                    get_indicators,
-                    # Deterministic verification snapshot (bound to the analyst
-                    # LLM and required by its prompt; must be executable here or
-                    # the call fails and the model reports it "unavailable").
-                    get_verified_market_snapshot,
-                ]
-            ),
-            "social": ToolNode(
-                [
-                    # News tools for social media analysis
-                    get_news,
-                ]
-            ),
-            "news": ToolNode(
-                [
-                    # News and insider information
-                    get_news,
-                    get_global_news,
-                    get_insider_transactions,
-                    get_macro_indicators,
-                    get_prediction_markets,
-                ]
-            ),
-            "fundamentals": ToolNode(
-                [
-                    # Fundamental analysis tools
-                    get_fundamentals,
-                    get_balance_sheet,
-                    get_cashflow,
-                    get_income_statement,
-                ]
-            ),
+            "market": ToolNode(self.tool_groups["market"]),
+            "news": ToolNode(self.tool_groups["news"], handle_tool_errors=True),
+            "fundamentals": ToolNode(self.tool_groups["fundamentals"]),
         }
 
     def _resolve_benchmark(self, ticker: str) -> str:
-        """Pick the benchmark ticker for alpha calculation against ``ticker``.
-
-        ``config["benchmark_ticker"]`` overrides everything when set; otherwise
-        the suffix map matches the ticker's exchange suffix (e.g. ``.T`` for
-        Tokyo). US-listed tickers without a dotted suffix fall through to the
-        empty-suffix entry (SPY by default). Unrecognised suffixes (including
-        US tickers with dots like ``BRK.B``) also fall back to the empty-suffix
-        entry, which is the right default because the alpha calculation works
-        in USD.
-        """
+        """Pick an A-share benchmark for realized-return attribution."""
         explicit = self.config.get("benchmark_ticker")
         if explicit:
-            return explicit
+            return str(explicit)
+
+        from tradingagents.dataflows.symbol_utils import normalize_a_share_symbol
+
+        canonical = normalize_a_share_symbol(ticker)
         benchmark_map = self.config.get("benchmark_map", {})
-        ticker_upper = ticker.upper()
-        for suffix, benchmark in benchmark_map.items():
-            if suffix and ticker_upper.endswith(suffix.upper()):
-                return benchmark
-        return benchmark_map.get("", "SPY")
+        if isinstance(canonical, str) and "." in canonical:
+            suffix = "." + canonical.rsplit(".", 1)[1].upper()
+            if suffix in benchmark_map:
+                return str(benchmark_map[suffix])
+        return str(benchmark_map.get("", "000300.SH"))
 
     def _fetch_returns(
         self, ticker: str, trade_date: str, holding_days: int = 5,
-        benchmark: str = "SPY",
+        benchmark: str = "000300.SH",
     ) -> tuple[float | None, float | None, int | None, str | None]:
-        """Fetch raw and alpha return for ticker over holding_days from trade_date.
+        """Resolve A-share raw/benchmark-relative return using BaoStock.
 
-        ``benchmark`` is the index used as the alpha baseline (resolved by the
-        caller via ``_resolve_benchmark``). Returns ``(raw_return, alpha_return,
-        holding_days, resolution_date)`` — where ``resolution_date`` is the date
-        of the last price bar used, i.e. when the outcome became known (#1251) —
-        or ``(None, None, None, None)`` when the outcome cannot be settled yet:
-        the full holding window has not traded (#1169), or the symbol is delisted
-        or unreachable.
+        The function remains deliberately best-effort because it runs as deferred
+        memory reflection. If the holding window has not completed or either
+        series is unavailable, the entry stays pending for a later run.
         """
-        from tradingagents.dataflows.symbol_utils import normalize_symbol
+        from tradingagents.dataflows.baostock import (
+            load_index_ohlcv_baostock,
+            load_ohlcv_baostock,
+        )
 
         try:
             start = datetime.strptime(trade_date, "%Y-%m-%d")
-            end = start + timedelta(days=holding_days + 7)  # buffer for weekends/holidays
+            end = start + timedelta(days=holding_days + 14)
             end_str = end.strftime("%Y-%m-%d")
 
-            # Normalize so the realized-return lookup hits the same instrument
-            # the analysis priced (e.g. XAUUSD -> GC=F) (#984). The benchmark is
-            # already a canonical Yahoo symbol from ``_resolve_benchmark``.
-            stock = yf.Ticker(normalize_symbol(ticker)).history(start=trade_date, end=end_str)
-            bench = yf.Ticker(benchmark).history(start=trade_date, end=end_str)
+            stock = load_ohlcv_baostock(
+                ticker,
+                end_str,
+                lookback_days=max(holding_days + 45, 90),
+                adjust="qfq",
+            )
+            try:
+                bench = load_index_ohlcv_baostock(
+                    benchmark,
+                    end_str,
+                    lookback_days=max(holding_days + 45, 90),
+                )
+            except Exception:
+                bench = load_ohlcv_baostock(
+                    benchmark,
+                    end_str,
+                    lookback_days=max(holding_days + 45, 90),
+                    adjust="qfq",
+                )
 
-            # Require the full holding window in both series. A rerun before it
-            # has traded leaves the entry pending to retry next run, rather than
-            # settling on a premature partial return (#1169).
+            stock = stock[stock["Date"] >= start].sort_values("Date").reset_index(drop=True)
+            bench = bench[bench["Date"] >= start].sort_values("Date").reset_index(drop=True)
+
             if len(stock) <= holding_days or len(bench) <= holding_days:
                 return None, None, None, None
 
@@ -312,14 +275,13 @@ class TradingAgentsGraph:
                 / bench["Close"].iloc[0]
             )
             alpha = raw - bench_ret
-            # The date of the last price bar used is when this outcome became
-            # known — the point-in-time cutoff for injecting the lesson (#1251).
-            resolution_date = stock.index[holding_days].strftime("%Y-%m-%d")
+            resolution_date = stock["Date"].iloc[holding_days].strftime("%Y-%m-%d")
             return raw, alpha, holding_days, resolution_date
-        except Exception as e:
+        except Exception as exc:
             logger.warning(
-                "Could not resolve outcome for %s on %s vs %s (will retry next run): %s",
-                ticker, trade_date, benchmark, e,
+                "Could not resolve BaoStock outcome for %s on %s vs %s "
+                "(will retry next run): %s",
+                ticker, trade_date, benchmark, exc,
             )
             return None, None, None, None
 
@@ -367,7 +329,7 @@ class TradingAgentsGraph:
     def resolve_instrument_context(self, ticker: str, asset_type: str = "stock") -> str:
         """Resolve ticker identity once and return the full instrument context.
 
-        Deterministic yfinance lookup (cached, fail-open) injected into a
+        Deterministic AKShare metadata lookup (cached, fail-open) injected into a
         context string so every agent anchors to the real company instead of
         hallucinating one from the price chart (#814). Both the propagate()
         path and the CLI call this so the resolved identity reaches the whole
@@ -388,16 +350,21 @@ class TradingAgentsGraph:
         return td if td < datetime.now().strftime("%Y-%m-%d") else None
 
     def _run_signature(self, asset_type: str) -> str:
-        """Graph-shape inputs that must invalidate a checkpoint if changed.
+        """Checkpoint signature for the graph choices that affect execution.
 
-        Keyed into the checkpoint thread ID so a resume under a different analyst
-        selection, debate/risk depth, or asset mode starts fresh instead of
-        silently continuing the previous graph (#1089).
+        The v1.4 graph no longer has debate/risk round settings. A resume is
+        invalidated only when the selected analyst set, bounded audit depth, or
+        asset mode changes.
         """
+        from .analyst_execution import build_analyst_execution_plan
+
+        analyst_keys = [
+            spec.key
+            for spec in build_analyst_execution_plan(self.selected_analysts).specs
+        ]
         return "|".join([
-            "analysts=" + ",".join(self.selected_analysts),
-            f"debate={self.config['max_debate_rounds']}",
-            f"risk={self.config['max_risk_discuss_rounds']}",
+            "analysts=" + ",".join(analyst_keys),
+            f"audit={int(self.config.get('max_audit_rounds', 2))}",
             f"asset={asset_type}",
         ])
 
@@ -574,46 +541,34 @@ class TradingAgentsGraph:
         return final_state, self.process_signal(final_state["final_trade_decision"])
 
     def _log_state(self, trade_date, final_state):
-        """Log the final state to a JSON file."""
+        """Persist only fields that belong to the seven-agent research graph."""
         self.log_states_dict[str(trade_date)] = {
-            "company_of_interest": final_state["company_of_interest"],
-            "trade_date": final_state["trade_date"],
-            "market_report": final_state["market_report"],
-            "sentiment_report": final_state["sentiment_report"],
-            "news_report": final_state["news_report"],
-            "fundamentals_report": final_state["fundamentals_report"],
-            "investment_debate_state": {
-                "bull_history": final_state["investment_debate_state"]["bull_history"],
-                "bear_history": final_state["investment_debate_state"]["bear_history"],
-                "history": final_state["investment_debate_state"]["history"],
-                "current_response": final_state["investment_debate_state"][
-                    "current_response"
-                ],
-                "judge_decision": final_state["investment_debate_state"][
-                    "judge_decision"
-                ],
-            },
-            "trader_investment_decision": final_state["trader_investment_plan"],
-            "risk_debate_state": {
-                "aggressive_history": final_state["risk_debate_state"]["aggressive_history"],
-                "conservative_history": final_state["risk_debate_state"]["conservative_history"],
-                "neutral_history": final_state["risk_debate_state"]["neutral_history"],
-                "history": final_state["risk_debate_state"]["history"],
-                "judge_decision": final_state["risk_debate_state"]["judge_decision"],
-            },
-            "investment_plan": final_state["investment_plan"],
-            "final_trade_decision": final_state["final_trade_decision"],
+            "company_of_interest": final_state.get("company_of_interest", self.ticker),
+            "trade_date": final_state.get("trade_date", str(trade_date)),
+            "market_report": final_state.get("market_report", ""),
+            "news_report": final_state.get("news_report", ""),
+            "fundamentals_report": final_state.get("fundamentals_report", ""),
+            "bull_thesis": final_state.get("bull_thesis", ""),
+            "bear_thesis": final_state.get("bear_thesis", ""),
+            "final_trade_decision": final_state.get("final_trade_decision", ""),
+            "audit_report": final_state.get("audit_report", ""),
+            "audit_status": final_state.get("audit_status", ""),
+            "audit_round": final_state.get("audit_round", 0),
+            "analyst_trace": final_state.get("analyst_trace", []),
         }
 
-        # Save to file. Reject ticker values that would escape the
-        # results directory when joined as a path component.
         safe_ticker = safe_ticker_component(self.ticker)
         directory = Path(self.config["results_dir"]) / safe_ticker / "TradingAgentsStrategy_logs"
         directory.mkdir(parents=True, exist_ok=True)
 
         log_path = directory / f"full_states_log_{trade_date}.json"
         with open(log_path, "w", encoding="utf-8") as f:
-            json.dump(self.log_states_dict[str(trade_date)], f, indent=4)
+            json.dump(
+                self.log_states_dict[str(trade_date)],
+                f,
+                ensure_ascii=False,
+                indent=2,
+            )
 
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""

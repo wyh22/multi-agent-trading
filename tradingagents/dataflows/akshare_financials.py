@@ -1,8 +1,8 @@
-"""Free A-share financial statements without Tushare."""
+"""Free A-share financial statements via AKShare/Sina Finance."""
 from __future__ import annotations
 
 import logging
-from typing import Callable
+
 import pandas as pd
 
 from .asof import enrich_with_metadata
@@ -21,13 +21,13 @@ def _check_akshare():
     return ak
 
 
-def _codes(ticker: str) -> tuple[str, str, str]:
+def _codes(ticker: str) -> tuple[str, str]:
     canonical = normalize_a_share_symbol(ticker)
     code, exchange = canonical.split(".", 1)
-    sina_prefix = {"SH":"sh","SZ":"sz","BJ":"bj"}.get(exchange.upper(), "")
+    sina_prefix = {"SH": "sh", "SZ": "sz", "BJ": "bj"}.get(exchange.upper(), "")
     if not sina_prefix:
         raise NoMarketDataError(ticker, canonical, f"无法映射新浪市场前缀: {exchange}")
-    return canonical, code, f"{sina_prefix}{code}"
+    return canonical, f"{sina_prefix}{code}"
 
 
 def _asof(curr_date: str | None) -> pd.Timestamp:
@@ -80,7 +80,7 @@ def _latest_date(df: pd.DataFrame) -> str | None:
 
 
 def _select_wide_columns(df: pd.DataFrame, keywords: tuple[str, ...]) -> pd.DataFrame:
-    fixed = [c for c in ("报告日","类型","更新日期","币种") if c in df.columns]
+    fixed = [c for c in ("报告日", "类型", "更新日期", "币种") if c in df.columns]
     selected = list(fixed)
     for col in df.columns:
         if col not in selected and any(key in str(col) for key in keywords):
@@ -90,74 +90,49 @@ def _select_wide_columns(df: pd.DataFrame, keywords: tuple[str, ...]) -> pd.Data
     return df[selected[:22]].head(8)
 
 
-def _render_ths_long(df: pd.DataFrame, metric_keywords: tuple[str, ...]) -> pd.DataFrame:
-    if df.empty:
-        return df
-    work = df.copy()
-    if "metric_name" in work.columns:
-        wanted = work["metric_name"].astype(str).map(lambda x: any(k in x for k in metric_keywords))
-        subset = work[wanted]
-        if not subset.empty:
-            work = subset
-    keep = [c for c in ("report_date","report_name","metric_name","value","yoy","mom") if c in work.columns]
-    return (work[keep] if keep else work).head(80)
-
-
-def _statement(ticker, freq, curr_date, *, sina_symbol, ths_func_name, title, keywords) -> str:
+def _statement(ticker, freq, curr_date, *, sina_symbol, title, keywords) -> str:
     ak = _check_akshare()
-    canonical, code, sina_code = _codes(ticker)
+    canonical, sina_code = _codes(ticker)
     cutoff = _asof(curr_date)
-    errors: list[str] = []
     try:
         df = ak.stock_financial_report_sina(stock=sina_code, symbol=sina_symbol)
-        if df is not None and not df.empty:
-            df = _filter_sina(df, curr_date, f"{title}/{canonical}")
-            df = _filter_report_period(df, curr_date, freq)
-            if not df.empty:
-                display = _select_wide_columns(df, keywords)
-                return enrich_with_metadata(
-                    f"# {canonical} {title} ({freq})\n# 数据源: AKShare / 新浪财经\n# PIT: 按 `更新日期` 截止过滤\n\n" + display.to_csv(index=False),
-                    vendor="akshare-sina", as_of_date=cutoff.strftime("%Y-%m-%d"), data_date=_latest_date(df),
-                )
-        errors.append("Sina returned no PIT-safe rows")
-    except Exception as exc:
-        errors.append(f"Sina: {exc}")
-        logger.warning("%s 新浪财报失败: %s", canonical, exc)
-
-    if _is_historical(curr_date) and bool(get_config().get("strict_asof", True)):
-        raise NoMarketDataError(ticker, canonical, "；".join(errors) + "；严格历史 PIT 下不使用缺少真实披露时间的同花顺财报 fallback")
-
-    try:
-        func: Callable = getattr(ak, ths_func_name)
-        indicator = "按年度" if freq.lower() == "annual" else "按报告期"
-        df = func(symbol=code, indicator=indicator)
         if df is None or df.empty:
-            raise ValueError("THS returned empty dataframe")
+            raise ValueError("新浪财报返回空数据")
+        df = _filter_sina(df, curr_date, f"{title}/{canonical}")
         df = _filter_report_period(df, curr_date, freq)
-        display = _render_ths_long(df, keywords)
-        if display.empty:
-            raise ValueError("THS has no rows at/before analysis date")
+        if df.empty:
+            raise ValueError("截止研究日无可用财报")
+        display = _select_wide_columns(df, keywords)
         return enrich_with_metadata(
-            f"# {canonical} {title} ({freq})\n# 数据源: AKShare / 同花顺 fallback\n# 注意: 此接口无独立披露时间；仅用于当前日期或 strict_asof=false。\n\n" + display.to_csv(index=False),
-            vendor="akshare-ths", as_of_date=cutoff.strftime("%Y-%m-%d"), data_date=_latest_date(df), quality_flag="current_only",
+            f"# {canonical} {title} ({freq})\n"
+            "# 数据源: AKShare / 新浪财经\n"
+            "# PIT: 按更新日期截止过滤\n\n"
+            + display.to_csv(index=False),
+            vendor="akshare-sina",
+            as_of_date=cutoff.strftime("%Y-%m-%d"),
+            data_date=_latest_date(df),
         )
+    except NoMarketDataError:
+        raise
     except Exception as exc:
-        errors.append(f"THS: {exc}")
-        raise NoMarketDataError(ticker, canonical, "；".join(errors)) from exc
+        logger.warning("%s 新浪财报失败: %s", canonical, exc)
+        raise NoMarketDataError(
+            ticker, canonical, f"AKShare/新浪财经 {title} 不可用: {exc}"
+        ) from exc
 
 
-_BALANCE_KEYS=("货币资金","应收","存货","流动资产","固定资产","资产总计","总资产","流动负债","负债合计","总负债","股东权益","所有者权益")
-_INCOME_KEYS=("营业收入","营业总收入","营业成本","营业利润","利润总额","净利润","归属于母公司","基本每股收益")
-_CASH_KEYS=("经营活动产生的现金流量净额","投资活动产生的现金流量净额","筹资活动产生的现金流量净额","现金及现金等价物净增加额","期末现金")
+_BALANCE_KEYS = ("货币资金", "应收", "存货", "流动资产", "固定资产", "资产总计", "总资产", "流动负债", "负债合计", "总负债", "股东权益", "所有者权益")
+_INCOME_KEYS = ("营业收入", "营业总收入", "营业成本", "营业利润", "利润总额", "净利润", "归属于母公司", "基本每股收益")
+_CASH_KEYS = ("经营活动产生的现金流量净额", "投资活动产生的现金流量净额", "筹资活动产生的现金流量净额", "现金及现金等价物净增加额", "期末现金")
 
 
 def get_free_balance_sheet(ticker: str, freq: str = "quarterly", curr_date: str | None = None) -> str:
-    return _statement(ticker,freq,curr_date,sina_symbol="资产负债表",ths_func_name="stock_financial_debt_new_ths",title="资产负债表",keywords=_BALANCE_KEYS)
+    return _statement(ticker, freq, curr_date, sina_symbol="资产负债表", title="资产负债表", keywords=_BALANCE_KEYS)
 
 
 def get_free_income_statement(ticker: str, freq: str = "quarterly", curr_date: str | None = None) -> str:
-    return _statement(ticker,freq,curr_date,sina_symbol="利润表",ths_func_name="stock_financial_benefit_new_ths",title="利润表",keywords=_INCOME_KEYS)
+    return _statement(ticker, freq, curr_date, sina_symbol="利润表", title="利润表", keywords=_INCOME_KEYS)
 
 
 def get_free_cashflow(ticker: str, freq: str = "quarterly", curr_date: str | None = None) -> str:
-    return _statement(ticker,freq,curr_date,sina_symbol="现金流量表",ths_func_name="stock_financial_cash_new_ths",title="现金流量表",keywords=_CASH_KEYS)
+    return _statement(ticker, freq, curr_date, sina_symbol="现金流量表", title="现金流量表", keywords=_CASH_KEYS)

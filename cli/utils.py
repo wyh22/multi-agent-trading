@@ -11,12 +11,11 @@ from tradingagents.llm_clients.model_catalog import get_model_options
 
 console = Console()
 
-TICKER_INPUT_EXAMPLES = "SPY, 0700.HK, BTC-USD"
+TICKER_INPUT_EXAMPLES = "600519.SH, 000001.SZ, 430047.BJ"
 
 ANALYST_ORDER = [
     ("Market Analyst", AnalystType.MARKET),
-    ("Sentiment Analyst", AnalystType.SOCIAL),
-    ("News Analyst", AnalystType.NEWS),
+    ("News & Sentiment Analyst", AnalystType.NEWS),
     ("Fundamentals Analyst", AnalystType.FUNDAMENTALS),
 ]
 
@@ -26,9 +25,9 @@ CRYPTO_SUFFIXES = ("-USD", "-USDT", "-USDC", "-BTC", "-ETH")
 def is_valid_ticker_input(value: str) -> bool:
     """Whether a ticker entry is acceptable (charset + length).
 
-    Allows the characters Yahoo symbols use, including ``=`` for futures/forex
-    like ``GC=F`` and ``EURUSD=X`` (#980), and ``^`` for indices. Empty input is
-    allowed (it defaults to SPY downstream).
+    Accepts common market-symbol characters while preserving A-share exchange
+    suffixes such as ``.SH``, ``.SZ`` and ``.BJ``. Empty input uses an A-share
+    example ticker so the default path remains compatible with BaoStock.
     """
     v = value.strip()
     return not v or (all(ch.isalnum() or ch in "._-^=" for ch in v) and len(v) <= 32)
@@ -45,7 +44,7 @@ def get_ticker() -> str:
         f"Enter ticker symbol (e.g. {TICKER_INPUT_EXAMPLES}):",
         validate=lambda x: (
             is_valid_ticker_input(x)
-            or "Please enter a valid ticker symbol, e.g. AAPL, 000404.SZ, 0700.HK, GC=F."
+            or "Please enter a valid ticker symbol, e.g. 600519.SH, 000001.SZ, 430047.BJ."
         ),
         style=questionary.Style(
             [
@@ -59,16 +58,16 @@ def get_ticker() -> str:
         console.print("\n[red]No ticker symbol provided. Exiting...[/red]")
         exit(1)
 
-    return normalize_ticker_symbol(ticker) if ticker.strip() else "SPY"
+    return normalize_ticker_symbol(ticker) if ticker.strip() else "600519.SH"
 
 
 def normalize_ticker_symbol(ticker: str) -> str:
-    """Resolve user input to its canonical Yahoo symbol (single source of truth).
+    """Resolve user input through the data layer's canonical symbol normalizer.
 
-    Delegates to the data layer's ``normalize_symbol`` so the symbol the CLI
-    passes through the pipeline is exactly the one the data path will price
-    (e.g. ``BTCUSD`` -> ``BTC-USD``, ``XAUUSD`` -> ``GC=F``). Falls back to the
-    plain upper-case if the data layer is unavailable.
+    A-share exchange suffixes are preserved and normalized consistently before
+    the symbol reaches the market-data path. The generic normalizer remains in
+    place for programmatic backward compatibility. Falls back to upper-case if
+    the data layer is unavailable.
     """
     try:
         from tradingagents.dataflows.symbol_utils import normalize_symbol
@@ -162,38 +161,6 @@ def select_analysts(asset_type: AssetType = AssetType.STOCK) -> list[AnalystType
         exit(1)
 
     return choices
-
-
-def select_research_depth() -> int:
-    """Select research depth using an interactive selection."""
-
-    # Define research depth options with their corresponding values
-    DEPTH_OPTIONS = [
-        ("Shallow - Quick research, few debate and strategy discussion rounds", 1),
-        ("Medium - Middle ground, moderate debate rounds and strategy discussion", 3),
-        ("Deep - Comprehensive research, in depth debate and strategy discussion", 5),
-    ]
-
-    choice = questionary.select(
-        "Select Your [Research Depth]:",
-        choices=[
-            questionary.Choice(display, value=value) for display, value in DEPTH_OPTIONS
-        ],
-        instruction="\n- Use arrow keys to navigate\n- Press Enter to select",
-        style=questionary.Style(
-            [
-                ("selected", "fg:yellow noinherit"),
-                ("highlighted", "fg:yellow noinherit"),
-                ("pointer", "fg:yellow noinherit"),
-            ]
-        ),
-    ).ask()
-
-    if choice is None:
-        console.print("\n[red]No research depth selected. Exiting...[/red]")
-        exit(1)
-
-    return choice
 
 
 # Mainstream OpenRouter chat-LLM provider namespaces. We surface the newest

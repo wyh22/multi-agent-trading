@@ -4,7 +4,7 @@ def _read(path): return (ROOT/path).read_text(encoding="utf-8")
 
 def test_mcp_server_exposes_finance_and_rag_tools():
     source=_read("tradingagents/mcp/server.py")
-    assert "MCPServer" in source
+    assert "FastMCP" in source
     assert "def get_stock_data(" in source
     assert "def get_fundamentals(" in source
     assert "def search_company_knowledge(" in source

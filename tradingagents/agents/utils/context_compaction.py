@@ -19,11 +19,7 @@ def compact_text(text: str | None, max_chars: int = 2600) -> str:
     tail = max_chars - head
     return (
         value[:head].rstrip()
-        + "
-
-……【中间内容已按上下文预算省略，原始报告仍保存在 trace 目录】……
-
-"
+        + "\n\n……【中间内容已按上下文预算省略，原始报告仍保存在 trace 目录】……\n\n"
         + value[-tail:].lstrip()
     )
 
@@ -36,11 +32,8 @@ def build_analyst_context(state: dict, per_report_chars: int = 2200) -> str:
         ("新闻、公告、宏观与情绪", state.get("news_report", "")),
         ("基本面", state.get("fundamentals_report", "")),
     ]
-    return "
-
-".join(
-        f"## {title}
-{compact_text(content, per_report_chars)}"
+    return "\n\n".join(
+        f"## {title}\n{compact_text(content, per_report_chars)}"
         for title, content in sections
         if content
     )
@@ -54,11 +47,7 @@ def build_decision_context(state: dict) -> str:
     bear = compact_text(state.get("bear_thesis", ""), 1600)
     parts = [analyst]
     if bull:
-        parts.append(f"## 看多论点
-{bull}")
+        parts.append(f"## 看多论点\n{bull}")
     if bear:
-        parts.append(f"## 看空论点
-{bear}")
-    return "
-
-".join(part for part in parts if part)
+        parts.append(f"## 看空论点\n{bear}")
+    return "\n\n".join(part for part in parts if part)

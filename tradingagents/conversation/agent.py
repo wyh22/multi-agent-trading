@@ -61,17 +61,6 @@ class ConversationAgent:
                     merged.append(tool)
                     seen.add(tool.name)
 
-        if self.config.get("ifind_enabled", False) and self.config.get("mcp_enabled", False):
-            try:
-                from tradingagents.mcp.client import load_mcp_tools_sync
-                remote = load_mcp_tools_sync(str(self.config.get("mcp_url", "http://localhost:8001/mcp")))
-                for tool in remote:
-                    if tool.name.startswith("ifind_") and tool.name not in seen:
-                        merged.append(tool)
-                        seen.add(tool.name)
-            except Exception as exc:  # noqa: BLE001
-                import logging
-                logging.getLogger(__name__).warning("iFinD MCP工具加载失败，将继续使用核心工具: %s", exc)
 
         if self.config.get("external_mcp_enabled", False):
             raw = str(self.config.get("external_mcp_servers_json", "") or "").strip()
@@ -163,8 +152,6 @@ class ConversationAgent:
                         elif name in {"get_fundamentals", "get_balance_sheet", "get_cashflow", "get_income_statement",
                                      "get_news", "get_insider_transactions", "search_company_knowledge"}:
                             args.setdefault("ticker", ticker)
-                        elif name in {"ifind_snapshot", "ifind_basic_data", "ifind_date_sequence"}:
-                            args.setdefault("codes", ticker)
                     if name in {"get_fundamentals", "get_insider_transactions", "get_global_news", "get_macro_indicators"}:
                         args.setdefault("curr_date", as_of_date)
                     if name in {"get_balance_sheet", "get_cashflow", "get_income_statement"}:
@@ -173,9 +160,6 @@ class ConversationAgent:
                         args.setdefault("as_of_date", as_of_date)
                     if name == "get_news":
                         args.setdefault("end_date", as_of_date)
-                    if name == "ifind_date_sequence":
-                        args.setdefault("end_date", as_of_date)
-                        args.setdefault("as_of_date", as_of_date)
                     try:
                         result = tool.invoke(args)
                     except Exception as exc:  # noqa: BLE001

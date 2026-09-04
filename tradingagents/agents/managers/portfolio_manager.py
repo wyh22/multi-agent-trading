@@ -1,12 +1,4 @@
-"""Portfolio Manager: synthesises the risk-analyst debate into the final decision.
-
-Uses LangChain's ``with_structured_output`` so the LLM produces a typed
-``PortfolioDecision`` directly, in a single call.  The result is rendered
-back to markdown for storage in ``final_trade_decision`` so memory log,
-CLI display, and saved reports continue to consume the same shape they do
-today.  When a provider does not expose structured output, the agent falls
-back gracefully to free-text generation.
-"""
+"""投资组合经理：一次综合多空观点，直接生成最终研究决策。"""
 
 from __future__ import annotations
 
@@ -15,6 +7,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+from tradingagents.agents.utils.context_compaction import build_decision_context
 from tradingagents.agents.utils.structured import (
     NO_EXTERNAL_TOOLS,
     bind_structured,
@@ -23,73 +16,66 @@ from tradingagents.agents.utils.structured import (
 
 
 def create_portfolio_manager(llm):
-    structured_llm = bind_structured(llm, PortfolioDecision, "Portfolio Manager")
+    """创建投资组合经理节点。"""
+
+    structured_llm = bind_structured(llm, PortfolioDecision, "投资组合经理")
 
     def portfolio_manager_node(state) -> dict:
         instrument_context = get_instrument_context_from_state(state)
-
-        history = state["risk_debate_state"]["history"]
-        risk_debate_state = state["risk_debate_state"]
-        research_plan = state["investment_plan"]
-        trader_plan = state["trader_investment_plan"]
-
+        evidence_context = build_decision_context(state)
         past_context = state.get("past_context", "")
-        lessons_line = (
-            f"- Lessons from prior decisions and outcomes:\n{past_context}\n"
-            if past_context
-            else ""
-        )
+        audit_feedback = state.get("audit_feedback", "").strip()
+        audit_round = int(state.get("audit_round", 0) or 0)
 
-        prompt = f"""As the Portfolio Manager, synthesize the risk analysts' debate and deliver the final trading decision.
+        revision_block = ""
+        if audit_feedback:
+            revision_block = f"""
+## 审计反馈
+这是一次修订调用。请只针对下列问题修正原结论，不要无意义扩写：
+{audit_feedback}
+""".strip()
+
+        prompt = f"""
+你是投资组合经理，负责把三类分析师证据和 Bull/Bear 两个互补假设收敛为最终研究结论。
+当前系统定位是“研究与候选发现”，不是自动交易，因此不要为了显得可执行而编造目标价、
+精确收益率或不存在的仓位依据。
 
 {instrument_context}
 
----
+## 紧凑证据包
+{evidence_context}
 
-**Rating Scale** (use exactly one):
-- **Buy**: Strong conviction to enter or add to position
-- **Overweight**: Favorable outlook, gradually increase exposure
-- **Hold**: Maintain current position, no action needed
-- **Underweight**: Reduce exposure, take partial profits
-- **Sell**: Exit position or avoid entry
+## 历史复盘摘要
+{past_context or '无'}
 
-**Context:**
-- Research Manager's investment plan: **{research_plan}**
-- Trader's transaction proposal: **{trader_plan}**
-{lessons_line}
-**Risk Analysts Debate History:**
-{history}
+{revision_block}
 
----
+评级只能使用：Buy / Overweight / Hold / Underweight / Sell。
+要求：
+1. 结论必须能追溯到当前证据；没有证据时明确写“不确定/待验证”。
+2. 同时吸收 Bull 与 Bear 的有效部分，不重复抄写其全文。
+3. 最多列出 5 项关键风险、5 项催化和 5 项失效条件。
+4. 不得给出无法由当前数据支持的精确价格目标。
+5. 若多空证据接近，允许 Hold；否则必须根据更强证据明确倾向。
+6. 输出要紧凑，目标约 800~1200 个中文字符。
+7. 如果结构化输出不可用，普通文本第一行必须写 `Rating: <五档评级>`。
+8. 当前审计轮次为 {audit_round}。
 
-Ground every conclusion in specific evidence from the analysts. Commit to a directional call only when the evidence clearly supports one; choose Hold when the case is balanced, materially conflicting, ambiguous, or insufficient to justify changing exposure, rather than forcing a direction to appear decisive. Weigh the analysts on their merits, independent of speaking order.
+{NO_EXTERNAL_TOOLS}
+{get_language_instruction()}
+""".strip()
 
-{NO_EXTERNAL_TOOLS}{get_language_instruction()}"""
-
-        final_trade_decision = invoke_structured_or_freetext(
+        final_decision = invoke_structured_or_freetext(
             structured_llm,
             llm,
             prompt,
             render_pm_decision,
-            "Portfolio Manager",
+            "投资组合经理",
         )
 
-        new_risk_debate_state = {
-            "judge_decision": final_trade_decision,
-            "history": risk_debate_state["history"],
-            "aggressive_history": risk_debate_state["aggressive_history"],
-            "conservative_history": risk_debate_state["conservative_history"],
-            "neutral_history": risk_debate_state["neutral_history"],
-            "latest_speaker": "Judge",
-            "current_aggressive_response": risk_debate_state["current_aggressive_response"],
-            "current_conservative_response": risk_debate_state["current_conservative_response"],
-            "current_neutral_response": risk_debate_state["current_neutral_response"],
-            "count": risk_debate_state["count"],
-        }
-
         return {
-            "risk_debate_state": new_risk_debate_state,
-            "final_trade_decision": final_trade_decision,
+            "final_trade_decision": final_decision.strip(),
+            "audit_status": "PENDING",
         }
 
     return portfolio_manager_node

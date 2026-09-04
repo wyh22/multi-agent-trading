@@ -38,12 +38,6 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_CONVERSATION_DB_PATH": "conversation_db_path",
     "TRADINGAGENTS_CONVERSATION_HISTORY_TURNS": "conversation_history_turns",
     "TRADINGAGENTS_CONVERSATION_TOOL_ROUNDS": "conversation_tool_rounds",
-    "TRADINGAGENTS_IFIND_ENABLED": "ifind_enabled",
-    "TRADINGAGENTS_IFIND_BASE_URL": "ifind_base_url",
-    "TRADINGAGENTS_IFIND_REFRESH_TOKEN": "ifind_refresh_token",
-    "TRADINGAGENTS_IFIND_TIMEOUT": "ifind_timeout",
-    "TRADINGAGENTS_IFIND_VERIFY_SSL": "ifind_verify_ssl",
-    "TRADINGAGENTS_IFIND_LANGUAGE": "ifind_language",
 }
 
 _BOOL_TRUE = ("true", "1", "yes", "on")
@@ -123,12 +117,6 @@ DEFAULT_CONFIG = _apply_env_overrides({
     ),
     "conversation_history_turns": 12,
     "conversation_tool_rounds": 4,
-    "ifind_enabled": False,
-    "ifind_base_url": "https://quantapi.51ifind.com/api/v1",
-    "ifind_refresh_token": "",
-    "ifind_timeout": 20.0,
-    "ifind_verify_ssl": True,
-    "ifind_language": "cn",
     "news_article_limit": 20,
     "global_news_article_limit": 10,
     "global_news_lookback_days": 7,
@@ -141,11 +129,10 @@ DEFAULT_CONFIG = _apply_env_overrides({
     ],
     "data_vendors": {
         "core_stock_apis": "baostock,akshare",
-        "technical_indicators": "akshare",
+        "technical_indicators": "baostock",
         "fundamental_data": "akshare",
         "news_data": "cninfo,akshare",
         "macro_data": "akshare",
-        "prediction_markets": "",
         "a_share_data": "baostock,akshare",
     },
     "tool_vendors": {
@@ -157,10 +144,11 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "get_macro_indicators": "akshare",
         "get_index_data": "baostock",
     },
-    "benchmark_ticker": None,
+    "benchmark_ticker": "000300.SH",
     "benchmark_map": {
-        ".NS":"^NSEI",".BO":"^BSESN",".T":"^N225",".HK":"^HSI",
-        ".L":"^FTSE",".TO":"^GSPTSE",".AX":"^AXJO",".SS":"000001.SS",
-        ".SZ":"399001.SZ","":"SPY",
+        ".SH": "000300.SH",
+        ".SZ": "000300.SH",
+        ".BJ": "000300.SH",
+        "": "000300.SH",
     },
 })

@@ -46,16 +46,11 @@ def search_company_knowledge(
     lines = [f"## {canonical} PIT-safe 知识库证据（截止 {as_of_date}）"]
     for i, hit in enumerate(hits, start=1):
         c = hit.chunk
-        excerpt = c.text.replace("
-", " ").strip()
+        excerpt = c.text.replace("\n", " ").strip()
         max_chars = int(config.get("rag_excerpt_chars", 650))
         if len(excerpt) > max_chars:
             excerpt = excerpt[:max_chars] + "…"
         meta = f"[{c.publish_date}] [{c.source}] {c.title}"
-        lines.append(f"{i}. {meta}
-   {excerpt}
-   source={c.url or c.doc_id}")
-    lines.append("
-注意：以上片段均经过 publish_date<=as_of_date 的 PIT 过滤；结论仍需结合原始来源核验。")
-    return "
-".join(lines)
+        lines.append(f"{i}. {meta}\n   {excerpt}\n   source={c.url or c.doc_id}")
+    lines.append("\n注意：以上片段均经过 publish_date<=as_of_date 的 PIT 过滤；结论仍需结合原始来源核验。")
+    return "\n".join(lines)

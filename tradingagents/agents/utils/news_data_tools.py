@@ -48,6 +48,7 @@ def get_global_news(
 @tool
 def get_insider_transactions(
     ticker: Annotated[str, "ticker symbol"],
+    curr_date: Annotated[str | None, "research cutoff date in yyyy-mm-dd format"] = None,
 ) -> str:
     """
     Retrieve insider transaction information about a company.
@@ -57,4 +58,4 @@ def get_insider_transactions(
     Returns:
         str: A report of insider transaction data
     """
-    return route_to_vendor("get_insider_transactions", ticker)
+    return route_to_vendor("get_insider_transactions", ticker, curr_date)
