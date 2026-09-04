@@ -23,6 +23,12 @@ services:
       - qdrant
     ports:
       - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   agent-api:
     build: .
@@ -40,6 +46,12 @@ services:
       - qdrant
     ports:
       - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
     volumes:
       - agent_state:/root/.tradingagents
 
