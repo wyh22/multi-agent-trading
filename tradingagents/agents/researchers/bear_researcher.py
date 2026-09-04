@@ -1,66 +1,40 @@
+"""看空研究员：基于三类分析师证据独立形成一次性风险论点。"""
+
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
-    opponent_argument_or_opening,
 )
+from tradingagents.agents.utils.context_compaction import build_analyst_context
 
 
 def create_bear_researcher(llm):
+    """创建只读取分析证据、只写入 bear_thesis 的看空研究员。"""
+
     def bear_node(state) -> dict:
-        investment_debate_state = state["investment_debate_state"]
-        history = investment_debate_state.get("history", "")
-        bear_history = investment_debate_state.get("bear_history", "")
-
-        current_response = opponent_argument_or_opening(
-            investment_debate_state.get("current_response", ""), "bull analyst"
-        )
-        market_research_report = state["market_report"]
-        sentiment_report = state["sentiment_report"]
-        news_report = state["news_report"]
-        fundamentals_report = state["fundamentals_report"]
         instrument_context = get_instrument_context_from_state(state)
-        asset_type = state.get("asset_type", "stock")
-        target_label = "stock" if asset_type == "stock" else "asset"
-        fundamentals_label = (
-            "Company fundamentals report"
-            if asset_type == "stock"
-            else "Asset fundamentals report (may be unavailable for crypto)"
-        )
+        evidence_context = build_analyst_context(state)
 
-        prompt = f"""You are a Bear Analyst making the case against investing in the {target_label}. Your goal is to present a well-reasoned argument emphasizing risks, challenges, and negative indicators. Leverage the provided research and data to highlight potential downsides and counter bullish arguments effectively.
-
-Key points to focus on:
-
-- Risks and Challenges: Highlight factors like market saturation, financial instability, or macroeconomic threats that could hinder the stock's performance.
-- Competitive Weaknesses: Emphasize vulnerabilities such as weaker market positioning, declining innovation, or threats from competitors.
-- Negative Indicators: Use evidence from financial data, market trends, or recent adverse news to support your position.
-- Bull Counterpoints: Critically analyze the bull argument with specific data and sound reasoning, exposing weaknesses or over-optimistic assumptions.
-- Engagement: Present your argument in a conversational style, directly engaging with the bull analyst's points and debating effectively rather than simply listing facts.
-
-Resources available:
+        prompt = f"""
+你是 A 股研究系统中的看空研究员。你的职责不是与另一名研究员多轮辩论，
+而是基于已经完成的市场、新闻/公告/宏观、基本面证据，独立形成一次紧凑的风险假设。
 
 {instrument_context}
-Market research report: {market_research_report}
-Social media sentiment report: {sentiment_report}
-Latest world affairs news: {news_report}
-{fundamentals_label}: {fundamentals_report}
-Conversation history of the debate: {history}
-Last bull argument: {current_response}
-Use this information to deliver a compelling bear argument, refute the bull's claims, and engage in a dynamic debate that demonstrates the risks and weaknesses of investing in the {target_label}.
-""" + get_language_instruction()
+
+## 上游证据
+{evidence_context or '当前没有可用的上游证据。'}
+
+要求：
+1. 只使用上游证据，不调用外部工具，不补充未经当前证据支持的新事实。
+2. 优先识别估值、盈利质量、行业、政策、流动性、技术面和事件层面的下行风险。
+3. 区分“已经发生的负面事实”和“仍待验证的风险情景”，不要把推断写成事实。
+4. 不假设 Bull Researcher 已经发言，也不要编造对手观点。
+5. 不给出没有证据支持的精确目标价、收益率或仓位数字。
+6. 输出保持紧凑，建议约 500~900 个中文字符。
+
+{get_language_instruction()}
+""".strip()
 
         response = llm.invoke(prompt)
-
-        argument = f"Bear Analyst: {response.content}"
-
-        new_investment_debate_state = {
-            "history": history + "\n" + argument,
-            "bear_history": bear_history + "\n" + argument,
-            "bull_history": investment_debate_state.get("bull_history", ""),
-            "current_response": argument,
-            "count": investment_debate_state["count"] + 1,
-        }
-
-        return {"investment_debate_state": new_investment_debate_state}
+        return {"bear_thesis": str(response.content).strip()}
 
     return bear_node
