@@ -1,18 +1,14 @@
-# TradingAgents/graph/propagation.py
+"""图状态初始化与运行参数组装。"""
+
+from __future__ import annotations
 
 from typing import Any
 
-from tradingagents.agents.utils.agent_states import (
-    InvestDebateState,
-    RiskDebateState,
-)
-
 
 class Propagator:
-    """Handles state initialization and propagation through the graph."""
+    """负责创建初始状态并生成 LangGraph 调用参数。"""
 
-    def __init__(self, max_recur_limit=100):
-        """Initialize with configuration parameters."""
+    def __init__(self, max_recur_limit: int = 60):
         self.max_recur_limit = max_recur_limit
 
     def create_initial_state(
@@ -23,62 +19,43 @@ class Propagator:
         past_context: str = "",
         instrument_context: str = "",
     ) -> dict[str, Any]:
-        """Create the initial state for the agent graph.
+        """创建一次单股深度研究的初始状态。"""
 
-        ``instrument_context`` is the deterministic ticker-identity string
-        resolved once at run start (see
-        ``TradingAgentsGraph.resolve_instrument_context``). When empty, agents
-        fall back to ticker-only context via
-        ``get_instrument_context_from_state``.
-        """
         return {
             "messages": [("human", company_name)],
             "company_of_interest": company_name,
             "asset_type": asset_type,
             "instrument_context": instrument_context,
             "trade_date": str(trade_date),
+            "sender": "",
             "past_context": past_context,
-            "investment_debate_state": InvestDebateState(
-                {
-                    "bull_history": "",
-                    "bear_history": "",
-                    "history": "",
-                    "current_response": "",
-                    "judge_decision": "",
-                    "count": 0,
-                }
-            ),
-            "risk_debate_state": RiskDebateState(
-                {
-                    "aggressive_history": "",
-                    "conservative_history": "",
-                    "neutral_history": "",
-                    "history": "",
-                    "latest_speaker": "",
-                    "current_aggressive_response": "",
-                    "current_conservative_response": "",
-                    "current_neutral_response": "",
-                    "judge_decision": "",
-                    "count": 0,
-                }
-            ),
             "market_report": "",
-            "fundamentals_report": "",
-            "sentiment_report": "",
             "news_report": "",
+            "fundamentals_report": "",
+            "bull_thesis": "",
+            "bear_thesis": "",
+            "final_trade_decision": "",
+            "audit_report": "",
+            "audit_status": "PENDING",
+            "audit_feedback": "",
+            "audit_round": 0,
+            "analyst_trace": [],
         }
 
-    def get_graph_args(self, callbacks: list | None = None) -> dict[str, Any]:
-        """Get arguments for the graph invocation.
+    def get_graph_args(
+        self,
+        callbacks: list | None = None,
+        max_concurrency: int | None = None,
+        metadata: dict | None = None,
+        stream_mode: str = "values",
+    ) -> dict[str, Any]:
+        """生成 LangGraph invoke/stream 所需参数。"""
 
-        Args:
-            callbacks: Optional list of callback handlers for tool execution tracking.
-                       Note: LLM callbacks are handled separately via LLM constructor.
-        """
-        config = {"recursion_limit": self.max_recur_limit}
+        config: dict[str, Any] = {"recursion_limit": self.max_recur_limit}
         if callbacks:
             config["callbacks"] = callbacks
-        return {
-            "stream_mode": "values",
-            "config": config,
-        }
+        if max_concurrency:
+            config["max_concurrency"] = int(max_concurrency)
+        if metadata:
+            config["metadata"] = dict(metadata)
+        return {"stream_mode": stream_mode, "config": config}
