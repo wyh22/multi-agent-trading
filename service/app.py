@@ -60,8 +60,6 @@ def health():
         "conversation_enabled": True,
         "mcp_enabled": bool(DEFAULT_CONFIG.get("mcp_enabled", False)),
         "rag_enabled": bool(DEFAULT_CONFIG.get("rag_enabled", False)),
-        "ifind_enabled": bool(DEFAULT_CONFIG.get("ifind_enabled", False)),
-        "ifind_configured": bool(DEFAULT_CONFIG.get("ifind_refresh_token")),
         "qdrant_url": DEFAULT_CONFIG.get("qdrant_url"),
     }
 
