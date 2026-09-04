@@ -17,9 +17,7 @@ def _fallback_audit(llm, prompt: str) -> tuple[str, str, str]:
 
     response = llm.invoke(
         prompt
-        + "
-
-结构化输出不可用。请仅输出 PASS 或 REVISE 开头的简短审计结论。"
+        + "\n\n结构化输出不可用。请仅输出 PASS 或 REVISE 开头的简短审计结论。"
     )
     text = response.content.strip()
     status = "REVISE" if text.upper().startswith("REVISE") else "PASS"
@@ -75,8 +73,7 @@ def create_decision_auditor(llm):
                 report = render_audit_result(result)
                 status = result.verdict
                 feedback = (
-                    "
-".join(f"- {item}" for item in result.revision_instructions[:5])
+                    "\n".join(f"- {item}" for item in result.revision_instructions[:5])
                     if status == "REVISE"
                     else ""
                 )
