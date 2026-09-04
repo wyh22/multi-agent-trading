@@ -20,6 +20,7 @@
 - 用确定性 Python 完成 **A 股候选发现与多因子筛选**，Agent 不直接“拍脑袋选股”；
 - 用 **Point-in-Time（PIT）数据约束**限制历史时点可见信息，降低未来数据泄漏；
 - 将原始多轮链路裁剪为 **7-Agent 并行 LangGraph**，分析师与 Bull/Bear 两阶段 Fan-Out/Fan-In；
+- 在 Agent 之间引入 **Claim-aware Context Compression**：将证据显式区分为 FACT / CALCULATION / INFERENCE / CONDITIONAL，并按类型与字符预算选择性压缩；
 - 增加 **Decision Auditor**，对最终结论做事实、数字、PIT 与证据一致性检查；
 - 通过 **Finance MCP + Qdrant Hybrid RAG** 标准化工具与知识检索；
 - 提供 **Agent Evaluation + Outcome Backtest**，把“工程质量”和“市场结果”分开评估；
@@ -31,6 +32,7 @@
 | --- | --- | --- |
 | 7-Agent LangGraph | Market / News / Fundamentals → Bull & Bear → Portfolio Manager → Auditor | 减少重复角色与无效多轮辩论 |
 | 并行执行 | Analyst Subgraph + Fan-Out/Fan-In | 降低串行 Agent 延迟 |
+| Claim-aware Context | FACT / CALCULATION / INFERENCE / CONDITIONAL + deterministic budget compression | 减少重复上下文，并防止推断/条件情景被升级为事实 |
 | A 股候选发现 | Market Regime + 行业筛选 + Quant Screen + PIT Quality Screen | 把数值筛选交给确定性算法 |
 | PIT 数据治理 | 披露日/发布日期截止过滤 | 降低未来函数与历史穿越 |
 | Decision Auditor | PASS / REVISE 条件路由 | 检查无依据推断和数字冲突 |
@@ -266,6 +268,17 @@ docker build .
 - 数据有效性检查；
 
 尽量交给 Python。LLM 主要负责语义分析、工具选择、观点综合与审计。
+
+### 为什么要区分四类 Claim
+
+Analyst 最终报告追加紧凑的 `Evidence Claims` 接口，并将声明区分为：
+
+- `FACT`：可直接由 Tool / 检索数据支持；
+- `CALCULATION`：基于已知输入得到的派生计算；
+- `INFERENCE`：从证据形成的解释性判断；
+- `CONDITIONAL`：只有触发条件成立时才有效的未来情景。
+
+Context Compression 优先解析显式标签；旧报告没有标签时使用确定性规则兜底。压缩阶段优先保留事实、计算和 Claim 类型多样性，不额外调用 LLM。Bull/Bear、Portfolio Manager 与 Auditor 都会收到类型语义约束，避免把推断或条件性预测重述为既成事实。
 
 ### 为什么增加 Auditor
 
