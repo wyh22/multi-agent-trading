@@ -38,7 +38,6 @@ from cli.utils import (
     select_analysts,
     select_deep_thinking_agent,
     select_llm_provider,
-    select_research_depth,
     select_shallow_thinking_agent,
 )
 from tradingagents.default_config import DEFAULT_CONFIG
