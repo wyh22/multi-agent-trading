@@ -5,6 +5,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_language_instruction,
 )
 from tradingagents.agents.utils.context_compaction import build_analyst_context
+from tradingagents.agents.utils.evidence_claims import claim_usage_instruction
 
 
 def create_bull_researcher(llm):
@@ -22,7 +23,7 @@ def create_bull_researcher(llm):
 
 ## 上游证据
 {evidence_context or '当前没有可用的上游证据。'}
-
+\n## Claim 类型规则\n{claim_usage_instruction()}\n
 要求：
 1. 只使用上游证据，不调用外部工具，不补充未经当前证据支持的新事实。
 2. 优先提炼能够支持上涨或基本面改善的驱动因素、竞争优势、催化与验证条件。
