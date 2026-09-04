@@ -3,7 +3,6 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-import yfinance as yf
 from langchain_core.messages import HumanMessage, RemoveMessage
 
 # Import tools from separate utility files
@@ -91,45 +90,48 @@ def _clean_identity_value(value: Any) -> str | None:
 
 @functools.lru_cache(maxsize=256)
 def resolve_instrument_identity(ticker: str) -> dict:
-    """Resolve deterministic identity metadata (company name, sector, …) for a ticker.
+    """Resolve A-share identity metadata via AKShare/EastMoney.
 
-    This exists to stop the pipeline from hallucinating a *different* company
-    when a chart pattern suggests a different industry than the real one
-    (#814): without a ground-truth name, the market analyst would pattern-match
-    the price action to a narrative and invent an identity that then cascaded
-    through every downstream agent.
-
-    Best-effort by design: if yfinance is unavailable, rate-limited, or doesn't
-    recognise the ticker, we return ``{}`` and the caller falls back to
-    ticker-only context rather than failing before analysis starts. Cached so
-    the lookup happens at most once per ticker per process.
-
-    The symbol is normalized first (e.g. ``XAUUSD`` -> ``GC=F``) so identity
-    resolves for the same instrument the price path actually fetches (#983).
+    Identity lookup is best-effort and never blocks research. It is intentionally
+    separate from price retrieval: a temporary metadata failure falls back to
+    ticker-only context instead of weakening the deterministic market-data path.
     """
-    from tradingagents.dataflows.symbol_utils import normalize_symbol
+    from tradingagents.dataflows.symbol_utils import normalize_a_share_symbol
 
-    try:
-        info = yf.Ticker(normalize_symbol(ticker)).info or {}
-    except Exception as exc:  # noqa: BLE001 — fail open, never block the run
-        logger.debug("Could not resolve instrument identity for %s: %s", ticker, exc)
+    canonical = normalize_a_share_symbol(ticker)
+    if not isinstance(canonical, str) or "." not in canonical:
         return {}
 
+    code, exchange = canonical.split(".", 1)
+    try:
+        import akshare as ak
+
+        frame = ak.stock_individual_info_em(symbol=code)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Could not resolve A-share identity for %s: %s", ticker, exc)
+        return {}
+
+    if frame is None or frame.empty or not {"item", "value"}.issubset(frame.columns):
+        return {}
+
+    info = {
+        str(row["item"]).strip(): row["value"]
+        for _, row in frame.iterrows()
+        if str(row.get("item", "")).strip()
+    }
+
     identity: dict[str, str] = {}
-    company_name = _clean_identity_value(info.get("longName")) or _clean_identity_value(
-        info.get("shortName")
-    )
+    company_name = _clean_identity_value(str(info.get("股票简称", "") or ""))
+    sector = _clean_identity_value(str(info.get("行业", "") or ""))
     if company_name:
         identity["company_name"] = company_name
-    for source_key, target_key in (
-        ("sector", "sector"),
-        ("industry", "industry"),
-        ("exchange", "exchange"),
-        ("quoteType", "quote_type"),
-    ):
-        value = _clean_identity_value(info.get(source_key))
-        if value:
-            identity[target_key] = value
+    if sector:
+        identity["sector"] = sector
+
+    exchange_name = {"SH": "SSE", "SZ": "SZSE", "BJ": "BSE"}.get(exchange.upper())
+    if exchange_name:
+        identity["exchange"] = exchange_name
+    identity["quote_type"] = "A-share"
     return identity
 
 
@@ -190,7 +192,7 @@ def get_instrument_context_from_state(state: Mapping[str, Any]) -> str:
     stored on the state (see ``TradingAgentsGraph.resolve_instrument_context``).
     Falls back to a ticker-only context — with no network lookup — when the
     state was constructed without it (bare programmatic states, tests), so a
-    consumer is never forced to make a yfinance call mid-graph.
+    consumer is never forced to make a metadata-vendor call mid-graph.
     """
     context = state.get("instrument_context")
     if isinstance(context, str) and context.strip():
