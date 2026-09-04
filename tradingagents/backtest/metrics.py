@@ -52,7 +52,8 @@ def mean_return(values: Sequence[float]) -> float:
 
 
 def excess_return(raw: Sequence[float], benchmark: Sequence[float]) -> list[float]:
-    return [float(r - b) for r, b in zip(raw, benchmark, strict=False)]
+    """Return benchmark-relative returns without binary floating-point noise."""
+    return [round(float(r) - float(b), 12) for r, b in zip(raw, benchmark, strict=False)]
 
 
 def max_drawdown(equity_curve: Sequence[float]) -> float:
