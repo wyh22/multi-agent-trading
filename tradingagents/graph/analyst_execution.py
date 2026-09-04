@@ -1,3 +1,7 @@
+"""并行分析师执行计划与耗时统计。"""
+
+from __future__ import annotations
+
 from collections.abc import Iterable
 from dataclasses import dataclass
 from time import monotonic
@@ -5,75 +9,77 @@ from time import monotonic
 
 @dataclass(frozen=True)
 class AnalystNodeSpec:
+    """单个分析师在父图中的静态配置。"""
+
     key: str
     agent_node: str
-    clear_node: str
     tool_node: str
     report_key: str
 
 
 @dataclass(frozen=True)
 class AnalystExecutionPlan:
+    """分析师并行执行计划。"""
+
     specs: list[AnalystNodeSpec]
+    parallel: bool = True
 
 
 ANALYST_NODE_SPECS: dict[str, AnalystNodeSpec] = {
     "market": AnalystNodeSpec(
         key="market",
         agent_node="Market Analyst",
-        clear_node="Msg Clear Market",
         tool_node="tools_market",
         report_key="market_report",
     ),
-    "social": AnalystNodeSpec(
-        # Wire key stays "social" for saved-config back-compat; the
-        # user-facing label is "Sentiment Analyst" to match the rename
-        # that landed in v0.2.5 (sentiment_analyst now ingests news +
-        # StockTwits + Reddit, not just social media).
-        key="social",
-        agent_node="Sentiment Analyst",
-        clear_node="Msg Clear Sentiment",
-        tool_node="tools_social",
-        report_key="sentiment_report",
-    ),
     "news": AnalystNodeSpec(
         key="news",
-        agent_node="News Analyst",
-        clear_node="Msg Clear News",
+        agent_node="News & Sentiment Analyst",
         tool_node="tools_news",
         report_key="news_report",
     ),
     "fundamentals": AnalystNodeSpec(
         key="fundamentals",
         agent_node="Fundamentals Analyst",
-        clear_node="Msg Clear Fundamentals",
         tool_node="tools_fundamentals",
         report_key="fundamentals_report",
     ),
 }
 
 
+def _normalize_analyst_key(value) -> str:
+    """兼容 Enum、字符串以及旧版 social 配置。"""
+
+    key = getattr(value, "value", value)
+    key = str(key).lower()
+    return "news" if key == "social" else key
+
+
 def build_analyst_execution_plan(
     selected_analysts: Iterable[str],
 ) -> AnalystExecutionPlan:
+    """根据用户选择生成去重后的分析师执行计划。"""
+
     specs: list[AnalystNodeSpec] = []
-    for analyst_key in selected_analysts:
+    seen: set[str] = set()
+    for raw_key in selected_analysts:
+        analyst_key = _normalize_analyst_key(raw_key)
+        if analyst_key in seen:
+            continue
         spec = ANALYST_NODE_SPECS.get(analyst_key)
         if spec is None:
-            raise ValueError(f"unknown analyst key: {analyst_key}")
+            raise ValueError(f"未知分析师类型: {analyst_key}")
+        seen.add(analyst_key)
         specs.append(spec)
 
     if not specs:
-        raise ValueError("at least one analyst must be selected")
-
+        raise ValueError("至少需要选择一名分析师")
     return AnalystExecutionPlan(specs=specs)
 
 
-def get_initial_analyst_node(plan: AnalystExecutionPlan) -> str:
-    return plan.specs[0].agent_node
-
-
 class AnalystWallTimeTracker:
+    """记录并行分析师的墙钟耗时。"""
+
     def __init__(self, plan: AnalystExecutionPlan):
         self.plan = plan
         self._started_at: dict[str, float] = {}
@@ -81,8 +87,11 @@ class AnalystWallTimeTracker:
 
     def mark_started(self, analyst_key: str, started_at: float | None = None) -> None:
         if analyst_key not in ANALYST_NODE_SPECS:
-            raise ValueError(f"unknown analyst key: {analyst_key}")
-        self._started_at.setdefault(analyst_key, monotonic() if started_at is None else started_at)
+            raise ValueError(f"未知分析师类型: {analyst_key}")
+        self._started_at.setdefault(
+            analyst_key,
+            monotonic() if started_at is None else started_at,
+        )
 
     def mark_completed(
         self,
@@ -90,7 +99,7 @@ class AnalystWallTimeTracker:
         completed_at: float | None = None,
     ) -> None:
         if analyst_key not in ANALYST_NODE_SPECS:
-            raise ValueError(f"unknown analyst key: {analyst_key}")
+            raise ValueError(f"未知分析师类型: {analyst_key}")
         if analyst_key in self._wall_times:
             return
         started_at = self._started_at.get(analyst_key)
@@ -107,11 +116,11 @@ class AnalystWallTimeTracker:
         for spec in self.plan.specs:
             duration = self._wall_times.get(spec.key)
             if duration is not None:
-                label = spec.agent_node.removesuffix(" Analyst")
+                label = spec.agent_node.replace(" Analyst", "")
                 parts.append(f"{label} {duration:.2f}s")
         if not parts:
-            return "Analyst wall time: pending"
-        return "Analyst wall time: " + " | ".join(parts)
+            return "分析师耗时：等待中"
+        return "分析师耗时：" + " | ".join(parts)
 
 
 def sync_analyst_tracker_from_chunk(
@@ -119,17 +128,16 @@ def sync_analyst_tracker_from_chunk(
     chunk: dict[str, str],
     now: float | None = None,
 ) -> None:
+    """根据 LangGraph 流式增量同步分析师开始/完成时间。"""
+
     current_time = monotonic() if now is None else now
-    active_found = False
+    first_update = not tracker._wall_times and not tracker._started_at
 
     for spec in tracker.plan.specs:
-        has_report = bool(chunk.get(spec.report_key))
-
-        if has_report:
+        if tracker.plan.parallel and first_update and spec.key not in tracker._started_at:
             tracker.mark_started(spec.key, started_at=current_time)
+
+        if chunk.get(spec.report_key) and spec.key not in tracker._wall_times:
+            if spec.key not in tracker._started_at:
+                tracker.mark_started(spec.key, started_at=current_time)
             tracker.mark_completed(spec.key, completed_at=current_time)
-            continue
-
-        if not active_found:
-            tracker.mark_started(spec.key, started_at=current_time)
-            active_found = True
