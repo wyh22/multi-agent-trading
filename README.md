@@ -117,7 +117,7 @@ pip install -e ".[agent,dev]"
 cp .env.example .env
 ```
 
-至少配置一个可用 LLM Provider 的 API Key。MCP、RAG、iFinD、LangSmith 能力均可按需开启。
+至少配置一个可用 LLM Provider 的 API Key。MCP、RAG、LangSmith 能力均可按需开启。
 
 ### 2. 数据源预检
 
@@ -251,7 +251,7 @@ pytest -q
 docker build .
 ```
 
-> 离线单元/回归测试通过，不等价于所有第三方在线服务已完成生产验证。真实 LLM、iFinD、外部 MCP、实时数据源仍依赖本地凭据与网络环境。
+> 离线单元/回归测试通过，不等价于所有第三方在线服务已完成生产验证。真实 LLM、外部 MCP 与实时数据源仍依赖本地凭据与网络环境。
 
 ## 关键工程设计
 
@@ -299,10 +299,21 @@ publish_date <= as_of_date
 
 并在向量检索之后再次做日期防御性检查。
 
+## 数据源边界
+
+| 数据类型 | 默认来源 | 设计原则 |
+| --- | --- | --- |
+| A 股 OHLCV / 估值 | BaoStock | 截止研究日读取，避免未来数据 |
+| 财务报表 | AKShare / 新浪财经 | 按可用更新日期做 PIT 过滤 |
+| 正式公告 | 巨潮资讯（CNInfo） | 公告时间不晚于研究截止日 |
+| 中国宏观 | AKShare 公共接口 | 结合统计期和发布滞后做可用日判断 |
+| 全球市场资讯 | AKShare / 财联社 | 只保留截止日前可见内容 |
+| 可选扩展 | Alpha Vantage / FRED / Prediction Market | 不作为 A 股核心链路的必要依赖 |
+
 ## 数据与安全边界
 
-- 公开仓库不包含 `.env`、API Key、iFinD refresh token、LangSmith Key。
-- iFinD 是可选 Adapter，不配置也可以使用其他数据链路。
+- 公开仓库不包含 `.env`、API Key 或 LangSmith Key。
+- 默认 A 股数据链路以 BaoStock、AKShare、巨潮资讯为主；Alpha Vantage、FRED 与预测市场数据作为可选扩展。
 - 历史选股仍可能受到历史成分数据完整性、停牌/退市样本和幸存者偏差影响。
 - 候选发现结果是 Research Shortlist，不是收益承诺。
 - 本项目不执行自动下单，不提供真实资金交易接口。
@@ -312,7 +323,6 @@ publish_date <= as_of_date
 - [ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)：设计取舍、代码所有权边界、面向工程评审的实现说明
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
 - [MCP_RAG_DOCKER_GUIDE.md](MCP_RAG_DOCKER_GUIDE.md)：MCP、Qdrant Hybrid RAG、Docker
-- [V1.4_CONVERSATION_IFIND_GUIDE.md](V1.4_CONVERSATION_IFIND_GUIDE.md)：多轮会话与 iFinD Adapter
 - [V1.4_VALIDATION.md](V1.4_VALIDATION.md)：当前离线验证边界
 
 ## 二次开发与许可证
