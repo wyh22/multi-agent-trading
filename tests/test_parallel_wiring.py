@@ -91,3 +91,10 @@ def test_cli_tracks_only_current_seven_agent_state():
     assert '"bull_thesis"' in source
     assert '"bear_thesis"' in source
     assert '"Decision Auditor"' in source
+
+def test_report_writer_uses_current_state_fields():
+    source = _read("tradingagents/reporting.py")
+    for current in ["bull_thesis", "bear_thesis", "final_trade_decision", "audit_report"]:
+        assert current in source
+    for removed in ["investment_debate_state", "risk_debate_state", "trader_investment_plan"]:
+        assert removed not in source
