@@ -11,7 +11,7 @@ from tradingagents.llm_clients.model_catalog import get_model_options
 
 console = Console()
 
-TICKER_INPUT_EXAMPLES = "SPY, 0700.HK, BTC-USD"
+TICKER_INPUT_EXAMPLES = "600519.SH, 000001.SZ, 430047.BJ"
 
 ANALYST_ORDER = [
     ("Market Analyst", AnalystType.MARKET),
@@ -25,9 +25,9 @@ CRYPTO_SUFFIXES = ("-USD", "-USDT", "-USDC", "-BTC", "-ETH")
 def is_valid_ticker_input(value: str) -> bool:
     """Whether a ticker entry is acceptable (charset + length).
 
-    Allows the characters Yahoo symbols use, including ``=`` for futures/forex
-    like ``GC=F`` and ``EURUSD=X`` (#980), and ``^`` for indices. Empty input is
-    allowed (it defaults to SPY downstream).
+    Accepts common market-symbol characters while preserving A-share exchange
+    suffixes such as ``.SH``, ``.SZ`` and ``.BJ``. Empty input uses an A-share
+    example ticker so the default path remains compatible with BaoStock.
     """
     v = value.strip()
     return not v or (all(ch.isalnum() or ch in "._-^=" for ch in v) and len(v) <= 32)
@@ -44,7 +44,7 @@ def get_ticker() -> str:
         f"Enter ticker symbol (e.g. {TICKER_INPUT_EXAMPLES}):",
         validate=lambda x: (
             is_valid_ticker_input(x)
-            or "Please enter a valid ticker symbol, e.g. AAPL, 000404.SZ, 0700.HK, GC=F."
+            or "Please enter a valid ticker symbol, e.g. 600519.SH, 000001.SZ, 430047.BJ."
         ),
         style=questionary.Style(
             [
@@ -58,16 +58,16 @@ def get_ticker() -> str:
         console.print("\n[red]No ticker symbol provided. Exiting...[/red]")
         exit(1)
 
-    return normalize_ticker_symbol(ticker) if ticker.strip() else "SPY"
+    return normalize_ticker_symbol(ticker) if ticker.strip() else "600519.SH"
 
 
 def normalize_ticker_symbol(ticker: str) -> str:
-    """Resolve user input to its canonical Yahoo symbol (single source of truth).
+    """Resolve user input through the data layer's canonical symbol normalizer.
 
-    Delegates to the data layer's ``normalize_symbol`` so the symbol the CLI
-    passes through the pipeline is exactly the one the data path will price
-    (e.g. ``BTCUSD`` -> ``BTC-USD``, ``XAUUSD`` -> ``GC=F``). Falls back to the
-    plain upper-case if the data layer is unavailable.
+    A-share exchange suffixes are preserved and normalized consistently before
+    the symbol reaches the market-data path. The generic normalizer remains in
+    place for programmatic backward compatibility. Falls back to upper-case if
+    the data layer is unavailable.
     """
     try:
         from tradingagents.dataflows.symbol_utils import normalize_symbol
