@@ -7,12 +7,11 @@ from .auditors.decision_auditor import create_decision_auditor
 from .managers.portfolio_manager import create_portfolio_manager
 from .researchers.bear_researcher import create_bear_researcher
 from .researchers.bull_researcher import create_bull_researcher
-from .utils.agent_states import AgentState, InvestDebateState
+from .utils.agent_states import AgentState
 from .utils.agent_utils import create_msg_delete
 
 __all__ = [
     "AgentState",
-    "InvestDebateState",
     "create_msg_delete",
     "create_market_analyst",
     "create_news_analyst",
