@@ -1,0 +1,25 @@
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+def _read(path): return (ROOT/path).read_text(encoding="utf-8")
+
+def test_mcp_server_exposes_finance_and_rag_tools():
+    source=_read("tradingagents/mcp/server.py")
+    assert "MCPServer" in source
+    assert "def get_stock_data(" in source
+    assert "def get_fundamentals(" in source
+    assert "def search_company_knowledge(" in source
+    assert 'transport="streamable-http"' in source
+
+def test_langgraph_can_load_mcp_tools_with_local_fallback():
+    source=_read("tradingagents/agents/utils/tool_registry.py")
+    assert "load_mcp_tools_sync" in source
+    assert "mcp_fallback_to_local" in source
+    assert 'groups["news"].append(search_company_knowledge)' in source
+
+def test_docker_compose_contains_agent_mcp_qdrant_services():
+    compose=_read("docker-compose.yml")
+    assert "agent-api:" in compose
+    assert "finance-mcp:" in compose
+    assert "qdrant:" in compose
+    assert "TRADINGAGENTS_MCP_ENABLED" in compose
+    assert "TRADINGAGENTS_RAG_ENABLED" in compose
