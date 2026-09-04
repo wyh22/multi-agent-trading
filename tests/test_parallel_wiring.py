@@ -73,3 +73,21 @@ def test_checkpoint_signature_has_no_removed_debate_or_risk_keys():
     assert "max_debate_rounds" not in source
     assert "max_risk_discuss_rounds" not in source
     assert "max_audit_rounds" in source
+
+def test_cli_tracks_only_current_seven_agent_state():
+    source = _read("cli/main.py")
+    for removed in [
+        "investment_debate_state",
+        "risk_debate_state",
+        "trader_investment_plan",
+        "Research Manager",
+        "Aggressive Analyst",
+        "Neutral Analyst",
+        "Conservative Analyst",
+        "max_debate_rounds",
+        "max_risk_discuss_rounds",
+    ]:
+        assert removed not in source
+    assert '"bull_thesis"' in source
+    assert '"bear_thesis"' in source
+    assert '"Decision Auditor"' in source
