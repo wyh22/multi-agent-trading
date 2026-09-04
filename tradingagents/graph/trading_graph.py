@@ -350,16 +350,21 @@ class TradingAgentsGraph:
         return td if td < datetime.now().strftime("%Y-%m-%d") else None
 
     def _run_signature(self, asset_type: str) -> str:
-        """Graph-shape inputs that must invalidate a checkpoint if changed.
+        """Checkpoint signature for the graph choices that affect execution.
 
-        Keyed into the checkpoint thread ID so a resume under a different analyst
-        selection, debate/risk depth, or asset mode starts fresh instead of
-        silently continuing the previous graph (#1089).
+        The v1.4 graph no longer has debate/risk round settings. A resume is
+        invalidated only when the selected analyst set, bounded audit depth, or
+        asset mode changes.
         """
+        from .analyst_execution import build_analyst_execution_plan
+
+        analyst_keys = [
+            spec.key
+            for spec in build_analyst_execution_plan(self.selected_analysts).specs
+        ]
         return "|".join([
-            "analysts=" + ",".join(self.selected_analysts),
-            f"debate={self.config['max_debate_rounds']}",
-            f"risk={self.config['max_risk_discuss_rounds']}",
+            "analysts=" + ",".join(analyst_keys),
+            f"audit={int(self.config.get('max_audit_rounds', 2))}",
             f"asset={asset_type}",
         ])
 
