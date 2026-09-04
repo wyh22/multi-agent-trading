@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TradingAgents A股研究助手</title>
+  <style>
+    body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;max-width:900px;margin:32px auto;padding:0 16px;background:#f6f7f9;color:#1f2328}
+    #chat{background:white;border:1px solid #d0d7de;border-radius:12px;min-height:520px;padding:16px;overflow:auto}
+    .msg{white-space:pre-wrap;margin:10px 0;padding:10px 12px;border-radius:10px;line-height:1.55}.user{background:#ddf4ff;margin-left:18%}.assistant{background:#f3f4f6;margin-right:8%}
+    .row{display:flex;gap:8px;margin-top:12px}.row input,.row textarea{flex:1;padding:10px;border:1px solid #d0d7de;border-radius:8px}.row textarea{min-height:72px;resize:vertical}
+    button{padding:10px 16px;border:0;border-radius:8px;background:#0969da;color:white;cursor:pointer}button:disabled{opacity:.5}
+    .meta{font-size:12px;color:#57606a;margin:8px 0}.top{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  </style>
+</head>
+<body>
+  <h2>TradingAgents A股研究助手</h2>
+  <div class="meta">支持多轮追问、完整7-Agent研究、候选发现、MCP工具与PIT-aware RAG。输入“深度分析600519.SH”可触发完整研究。</div>
+  <div class="top"><input id="ticker" placeholder="可选股票代码，如600519.SH" /><input id="date" type="date" /></div>
+  <div id="chat"></div>
+  <div class="row"><textarea id="message" placeholder="例如：深度分析600519.SH；或：刚才结论最大的风险是什么？"></textarea><button id="send">发送</button></div>
+  <div class="meta" id="status"></div>
+<script>
+let threadId=localStorage.getItem('tradingagents_thread_id')||null;
+document.getElementById('date').value=new Date().toISOString().slice(0,10);
+function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;document.getElementById('chat').appendChild(d);d.scrollIntoView({behavior:'smooth'});}
+async function send(){
+  const btn=document.getElementById('send'),msg=document.getElementById('message').value.trim();if(!msg)return;
+  add('user',msg);document.getElementById('message').value='';btn.disabled=true;document.getElementById('status').textContent='处理中…';
+  const body={message:msg,thread_id:threadId,ticker:document.getElementById('ticker').value.trim()||null,as_of_date:document.getElementById('date').value};
+  try{
+    const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const data=await r.json();if(!r.ok)throw new Error(data.detail||r.statusText);
+    threadId=data.thread_id;localStorage.setItem('tradingagents_thread_id',threadId);add('assistant',data.answer);
+    document.getElementById('status').textContent=`thread=${threadId} · route=${data.route} · ticker=${data.ticker||'未指定'}`;
+  }catch(e){add('assistant','请求失败：'+e.message);document.getElementById('status').textContent='失败';}finally{btn.disabled=false;}
+}
+document.getElementById('send').onclick=send;
+document.getElementById('message').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+</script>
+</body>
+</html>
