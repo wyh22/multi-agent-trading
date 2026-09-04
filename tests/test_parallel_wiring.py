@@ -39,3 +39,37 @@ def test_decision_auditor_can_route_back_once_for_revision():
     assert "route_after_audit" in setup_source
     assert '"修订": "Portfolio Manager"' in setup_source
     assert 'status == "REVISE"' in logic_source
+
+def test_bull_and_bear_use_current_state_contract():
+    from types import SimpleNamespace
+
+    from tradingagents.agents.researchers.bear_researcher import create_bear_researcher
+    from tradingagents.agents.researchers.bull_researcher import create_bull_researcher
+
+    class FakeLLM:
+        def invoke(self, _prompt):
+            return SimpleNamespace(content="evidence-based thesis")
+
+    state = {
+        "company_of_interest": "600519.SH",
+        "asset_type": "stock",
+        "instrument_context": "A-share test instrument",
+        "market_report": "market evidence",
+        "news_report": "news evidence",
+        "fundamentals_report": "fundamental evidence",
+    }
+
+    bull = create_bull_researcher(FakeLLM())(state)
+    bear = create_bear_researcher(FakeLLM())(state)
+
+    assert bull == {"bull_thesis": "evidence-based thesis"}
+    assert bear == {"bear_thesis": "evidence-based thesis"}
+    assert "investment_debate_state" not in bull
+    assert "investment_debate_state" not in bear
+
+
+def test_checkpoint_signature_has_no_removed_debate_or_risk_keys():
+    source = _read("tradingagents/graph/trading_graph.py")
+    assert "max_debate_rounds" not in source
+    assert "max_risk_discuss_rounds" not in source
+    assert "max_audit_rounds" in source
