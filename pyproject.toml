@@ -45,7 +45,7 @@ dependencies = [
 [project.optional-dependencies]
 eval = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 agent = [
-    "mcp[cli]>=2.0,<3",
+    "mcp[cli]>=1.24,<2",
     "langchain-mcp-adapters>=0.3.2,<0.4",
     "qdrant-client>=1.15,<2",
     "fastembed>=0.7,<1",
