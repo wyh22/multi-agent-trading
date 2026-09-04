@@ -200,7 +200,34 @@ pytest -q
 8. `tradingagents/conversation/agent.py`：理解会话路由；
 9. `service/app.py`：理解服务接口。
 
-## 12. 下一阶段可以继续量化的指标
+## 12. Claim-aware Context Compression
+
+旧实现只按字符预算保留报告头尾，虽然能限制上下文长度，但无法区分“直接证据”和“模型解释”。当前实现增加显式 Claim 层：
+
+```text
+Analyst full report
+      ↓
+Evidence Claims
+      ├─ FACT
+      ├─ CALCULATION
+      ├─ INFERENCE
+      └─ CONDITIONAL
+      ↓
+typed budget selection
+      ↓
+Bull / Bear → Portfolio Manager → Auditor
+```
+
+实现路径：
+
+- `tradingagents/agents/utils/evidence_claims.py`：Claim 类型、显式标签解析、旧报告规则分类、预算选择；
+- `tradingagents/agents/utils/context_compaction.py`：构造 Analyst / Decision 紧凑证据包；
+- 三类 Analyst 在最终报告末尾生成 4~8 条类型化 Evidence Claims；
+- Bull/Bear、Portfolio Manager、Auditor 共享同一组 Claim 语义约束。
+
+压缩优先级不是“置信度评分”。FACT / CALCULATION 获得更高预算优先级是因为它们构成 Grounding 层；INFERENCE 仍可保留，但不得被下游重述为事实；CONDITIONAL 必须保留原始触发条件。若旧报告没有显式标签，则使用保守的确定性规则兜底，因此该能力不会为了压缩再新增一次 LLM 调用。
+
+## 13. 下一阶段可以继续量化的指标
 
 后续最值得补的不是继续增加 Agent 数量，而是把工程收益量化：
 
