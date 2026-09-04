@@ -133,7 +133,6 @@ DEFAULT_CONFIG = _apply_env_overrides({
         "fundamental_data": "akshare",
         "news_data": "cninfo,akshare",
         "macro_data": "akshare",
-        "prediction_markets": "",
         "a_share_data": "baostock,akshare",
     },
     "tool_vendors": {
