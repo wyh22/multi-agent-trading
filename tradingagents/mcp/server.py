@@ -4,7 +4,7 @@ import functools
 import os
 
 try:
-    from mcp.server import MCPServer
+    from mcp.server.fastmcp import FastMCP
 except ImportError as exc:  # pragma: no cover - optional dependency
     raise RuntimeError("MCP SDK 未安装，请执行 `pip install -e '.[agent]'`") from exc
 
@@ -27,12 +27,14 @@ from tradingagents.agents.utils.rag_tools import search_company_knowledge as lc_
 from tradingagents.dataflows.config import get_config
 from tradingagents.mcp.ifind import IFinDHTTPClient, compact_ifind_json
 
-mcp = MCPServer(
+mcp = FastMCP(
     "TradingAgents A-share Finance Tools",
     instructions=(
         "A-share deterministic finance tools and PIT-aware knowledge retrieval. "
         "All historical queries must pass an explicit research cutoff date."
     ),
+    stateless_http=True,
+    json_response=True,
 )
 
 
@@ -207,8 +209,6 @@ def main():
         transport="streamable-http",
         host=os.getenv("MCP_HOST", "0.0.0.0"),
         port=int(os.getenv("MCP_PORT", "8001")),
-        stateless_http=True,
-        json_response=True,
     )
 
 
