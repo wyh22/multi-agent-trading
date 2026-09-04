@@ -526,8 +526,8 @@ def get_user_selections():
     console.print(
         create_question_box(
             "Step 1: Ticker Symbol",
-            "Enter the ticker, with exchange suffix when needed (e.g. SPY, 0700.HK, BTC-USD)",
-            "SPY",
+            "Enter an A-share ticker with exchange suffix (e.g. 600519.SH, 000001.SZ, 430047.BJ)",
+            "600519.SH",
         )
     )
     selected_ticker = get_ticker()
