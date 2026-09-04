@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from tradingagents.agents.schemas import AuditResult, render_audit_result
 from tradingagents.agents.utils.context_compaction import build_decision_context, compact_text
+from tradingagents.agents.utils.evidence_claims import claim_usage_instruction
 from tradingagents.agents.utils.structured import NO_EXTERNAL_TOOLS, bind_structured
 
 
@@ -42,7 +43,7 @@ def create_decision_auditor(llm):
 
 ## 上游证据
 {evidence_context}
-
+\n## Claim 类型规则\n{claim_usage_instruction()}\n
 ## 待审计最终结论
 {final_decision}
 
