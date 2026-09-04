@@ -45,7 +45,6 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.analyst_execution import (
     AnalystWallTimeTracker,
     build_analyst_execution_plan,
-    get_initial_analyst_node,
     sync_analyst_tracker_from_chunk,
 )
 from tradingagents.graph.trading_graph import TradingAgentsGraph
@@ -74,35 +73,28 @@ app = typer.Typer(
 
 # Create a deque to store recent messages with a maximum length
 class MessageBuffer:
-    # Fixed teams that always run (not user-selectable)
+    # Fixed agents that always run after the selected analyst fan-out.
     FIXED_AGENTS = {
-        "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
-        "Trading Team": ["Trader"],
-        "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
-        "Portfolio Management": ["Portfolio Manager"],
+        "Research Team": ["Bull Researcher", "Bear Researcher"],
+        "Decision Team": ["Portfolio Manager", "Decision Auditor"],
     }
 
-    # Analyst name mapping
     ANALYST_MAPPING = {
         "market": "Market Analyst",
-        "social": "Sentiment Analyst",
-        "news": "News Analyst",
+        "social": "News & Sentiment Analyst",  # saved-config compatibility
+        "news": "News & Sentiment Analyst",
         "fundamentals": "Fundamentals Analyst",
     }
 
-    # Report section mapping: section -> (analyst_key for filtering, finalizing_agent)
-    # analyst_key: which analyst selection controls this section (None = always included)
-    # finalizing_agent: which agent must be "completed" for this report to count as done
     REPORT_SECTIONS = {
         "market_report": ("market", "Market Analyst"),
-        "sentiment_report": ("social", "Sentiment Analyst"),
-        "news_report": ("news", "News Analyst"),
+        "news_report": ("news", "News & Sentiment Analyst"),
         "fundamentals_report": ("fundamentals", "Fundamentals Analyst"),
-        "investment_plan": (None, "Research Manager"),
-        "trader_investment_plan": (None, "Trader"),
+        "bull_thesis": (None, "Bull Researcher"),
+        "bear_thesis": (None, "Bear Researcher"),
         "final_trade_decision": (None, "Portfolio Manager"),
+        "audit_report": (None, "Decision Auditor"),
     }
-
     def __init__(self, max_length=100):
         self.messages = deque(maxlen=max_length)
         self.tool_calls = deque(maxlen=max_length)
@@ -120,7 +112,14 @@ class MessageBuffer:
         Args:
             selected_analysts: List of analyst type strings (e.g., ["market", "news"])
         """
-        self.selected_analysts = [a.lower() for a in selected_analysts]
+        normalized = []
+        for raw in selected_analysts:
+            key = getattr(raw, "value", raw)
+            key = str(key).lower()
+            key = "news" if key == "social" else key
+            if key not in normalized:
+                normalized.append(key)
+        self.selected_analysts = normalized
 
         # Build agent_status dynamically
         self.agent_status = {}
@@ -189,75 +188,58 @@ class MessageBuffer:
             self._update_current_report()
 
     def _update_current_report(self):
-        # For the panel display, only show the most recently updated section
         latest_section = None
         latest_content = None
-
-        # Find the most recently updated section
         for section, content in self.report_sections.items():
-            if content is not None:
+            if content:
                 latest_section = section
                 latest_content = content
 
         if latest_section and latest_content:
-            # Format the current section for display
             section_titles = {
                 "market_report": "Market Analysis",
-                "sentiment_report": "Social Sentiment",
-                "news_report": "News Analysis",
+                "news_report": "News / Announcements / Macro",
                 "fundamentals_report": "Fundamentals Analysis",
-                "investment_plan": "Research Team Decision",
-                "trader_investment_plan": "Trading Team Plan",
-                "final_trade_decision": "Portfolio Management Decision",
+                "bull_thesis": "Bull Thesis",
+                "bear_thesis": "Bear Thesis",
+                "final_trade_decision": "Portfolio Manager Decision",
+                "audit_report": "Decision Audit",
             }
             self.current_report = (
                 f"### {section_titles[latest_section]}\n{latest_content}"
             )
-
-        # Update the final complete report
         self._update_final_report()
 
     def _update_final_report(self):
         report_parts = []
-
-        # Analyst Team Reports - use .get() to handle missing sections
-        analyst_sections = ["market_report", "sentiment_report", "news_report", "fundamentals_report"]
-        if any(self.report_sections.get(section) for section in analyst_sections):
+        analyst_sections = [
+            ("market_report", "Market Analysis"),
+            ("news_report", "News / Announcements / Macro"),
+            ("fundamentals_report", "Fundamentals Analysis"),
+        ]
+        analyst_parts = [
+            f"### {title}\n{self.report_sections[key]}"
+            for key, title in analyst_sections
+            if self.report_sections.get(key)
+        ]
+        if analyst_parts:
             report_parts.append("## Analyst Team Reports")
-            if self.report_sections.get("market_report"):
-                report_parts.append(
-                    f"### Market Analysis\n{self.report_sections['market_report']}"
-                )
-            if self.report_sections.get("sentiment_report"):
-                report_parts.append(
-                    f"### Social Sentiment\n{self.report_sections['sentiment_report']}"
-                )
-            if self.report_sections.get("news_report"):
-                report_parts.append(
-                    f"### News Analysis\n{self.report_sections['news_report']}"
-                )
-            if self.report_sections.get("fundamentals_report"):
-                report_parts.append(
-                    f"### Fundamentals Analysis\n{self.report_sections['fundamentals_report']}"
-                )
+            report_parts.extend(analyst_parts)
 
-        # Research Team Reports
-        if self.report_sections.get("investment_plan"):
-            report_parts.append("## Research Team Decision")
-            report_parts.append(f"{self.report_sections['investment_plan']}")
-
-        # Trading Team Reports
-        if self.report_sections.get("trader_investment_plan"):
-            report_parts.append("## Trading Team Plan")
-            report_parts.append(f"{self.report_sections['trader_investment_plan']}")
-
-        # Portfolio Management Decision
+        if self.report_sections.get("bull_thesis"):
+            report_parts.append("## Bull Thesis")
+            report_parts.append(self.report_sections["bull_thesis"])
+        if self.report_sections.get("bear_thesis"):
+            report_parts.append("## Bear Thesis")
+            report_parts.append(self.report_sections["bear_thesis"])
         if self.report_sections.get("final_trade_decision"):
-            report_parts.append("## Portfolio Management Decision")
-            report_parts.append(f"{self.report_sections['final_trade_decision']}")
+            report_parts.append("## Portfolio Manager Decision")
+            report_parts.append(self.report_sections["final_trade_decision"])
+        if self.report_sections.get("audit_report"):
+            report_parts.append("## Decision Audit")
+            report_parts.append(self.report_sections["audit_report"])
 
         self.final_report = "\n\n".join(report_parts) if report_parts else None
-
 
 message_buffer = MessageBuffer()
 
@@ -312,20 +294,16 @@ def update_display(layout, spinner_text=None, stats_handler=None, start_time=Non
     progress_table.add_column("Agent", style="green", justify="center", width=20)
     progress_table.add_column("Status", style="yellow", justify="center", width=20)
 
-    # Group agents by team - filter to only include agents in agent_status
+    # Group agents exactly as they exist in the current graph.
     all_teams = {
         "Analyst Team": [
             "Market Analyst",
-            "Sentiment Analyst",
-            "News Analyst",
+            "News & Sentiment Analyst",
             "Fundamentals Analyst",
         ],
-        "Research Team": ["Bull Researcher", "Bear Researcher", "Research Manager"],
-        "Trading Team": ["Trader"],
-        "Risk Management": ["Aggressive Analyst", "Neutral Analyst", "Conservative Analyst"],
-        "Portfolio Management": ["Portfolio Manager"],
+        "Research Team": ["Bull Researcher", "Bear Researcher"],
+        "Decision Team": ["Portfolio Manager", "Decision Auditor"],
     }
-
     # Filter teams to only include agents that are in agent_status
     teams = {}
     for team, agents in all_teams.items():
@@ -502,7 +480,7 @@ def get_user_selections():
     welcome_content = f"{welcome_ascii}\n"
     welcome_content += "[bold green]TradingAgents: Multi-Agents LLM Financial Trading Framework - CLI[/bold green]\n\n"
     welcome_content += "[bold]Workflow Steps:[/bold]\n"
-    welcome_content += "I. Analyst Team → II. Research Team → III. Trader → IV. Risk Management → V. Portfolio Management\n\n"
+    welcome_content += "I. Analyst Team → II. Bull/Bear Research → III. Portfolio Manager → IV. Decision Auditor\n\n"
     welcome_content += (
         "[dim]Built by [Tauric Research](https://github.com/TauricResearch)[/dim]"
     )
@@ -599,29 +577,7 @@ def get_user_selections():
         f"[green]Selected analysts:[/green] {', '.join(analyst.value for analyst in selected_analysts)}"
     )
 
-    # Step 5: Research depth (skipped when both round counts are set via env).
-    # Research depth maps to the debate + risk round counts; when both are
-    # supplied through TRADINGAGENTS_MAX_DEBATE_ROUNDS / _MAX_RISK_ROUNDS we keep
-    # the run non-interactive and honor the env values (#977).
-    depth_from_env = bool(os.environ.get("TRADINGAGENTS_MAX_DEBATE_ROUNDS")) and bool(
-        os.environ.get("TRADINGAGENTS_MAX_RISK_ROUNDS")
-    )
-    if depth_from_env:
-        selected_research_depth = DEFAULT_CONFIG["max_debate_rounds"]
-        console.print(
-            f"[green]✓ Research depth from environment:[/green] "
-            f"{DEFAULT_CONFIG['max_debate_rounds']} debate / "
-            f"{DEFAULT_CONFIG['max_risk_discuss_rounds']} risk rounds"
-        )
-    else:
-        console.print(
-            create_question_box(
-                "Step 5: Research Depth", "Select your research depth level"
-            )
-        )
-        selected_research_depth = select_research_depth()
-
-    # Step 6: LLM Provider (skipped when set via TRADINGAGENTS_LLM_PROVIDER).
+    # Step 5: LLM Provider    # Step 5: LLM Provider (skipped when set via TRADINGAGENTS_LLM_PROVIDER).
     # The backend URL comes from TRADINGAGENTS_LLM_BACKEND_URL when set,
     # otherwise the provider's default endpoint — the same value the menu
     # would have picked.
@@ -638,7 +594,7 @@ def get_user_selections():
     else:
         console.print(
             create_question_box(
-                "Step 6: LLM Provider", "Select your LLM provider"
+                "Step 5: LLM Provider", "Select your LLM provider"
             )
         )
         selected_llm_provider, backend_url = select_llm_provider()
@@ -674,7 +630,7 @@ def get_user_selections():
         # doesn't fail later at the first API call.
         ensure_api_key(selected_llm_provider)
 
-    # Step 7: Thinking agents (skipped when either model is set via environment)
+    # Step 6: Thinking agents (skipped when either model is set via environment)
     if os.environ.get("TRADINGAGENTS_QUICK_THINK_LLM") or os.environ.get("TRADINGAGENTS_DEEP_THINK_LLM"):
         selected_shallow_thinker = DEFAULT_CONFIG["quick_think_llm"]
         selected_deep_thinker = DEFAULT_CONFIG["deep_think_llm"]
@@ -685,13 +641,13 @@ def get_user_selections():
     else:
         console.print(
             create_question_box(
-                "Step 7: Thinking Agents", "Select your thinking agents for analysis"
+                "Step 6: Thinking Agents", "Select your thinking agents for analysis"
             )
         )
         selected_shallow_thinker = select_shallow_thinking_agent(selected_llm_provider)
         selected_deep_thinker = select_deep_thinking_agent(selected_llm_provider)
 
-    # Step 8: Provider-specific reasoning/thinking configuration. Each knob is
+    # Step 7: Provider-specific reasoning/thinking configuration. Each knob is
     # settable via its TRADINGAGENTS_* env var; when that var is set (or the
     # provider itself came from env) the prompt is skipped and the configured
     # value is used — same env-precedence rule as the steps above. None = each
@@ -708,19 +664,19 @@ def get_user_selections():
     elif provider_lower == "google":
         thinking_level = thinking_value_or_prompt(
             "TRADINGAGENTS_GOOGLE_THINKING_LEVEL", "google_thinking_level",
-            "Gemini thinking mode", "Step 8: Thinking Mode",
+            "Gemini thinking mode", "Step 7: Thinking Mode",
             "Configure Gemini thinking mode", ask_gemini_thinking_config,
         )
     elif provider_lower == "openai":
         reasoning_effort = thinking_value_or_prompt(
             "TRADINGAGENTS_OPENAI_REASONING_EFFORT", "openai_reasoning_effort",
-            "Reasoning effort", "Step 8: Reasoning Effort",
+            "Reasoning effort", "Step 7: Reasoning Effort",
             "Configure OpenAI reasoning effort level", ask_openai_reasoning_effort,
         )
     elif provider_lower == "anthropic":
         anthropic_effort = thinking_value_or_prompt(
             "TRADINGAGENTS_ANTHROPIC_EFFORT", "anthropic_effort",
-            "Claude effort", "Step 8: Effort Level",
+            "Claude effort", "Step 7: Effort Level",
             "Configure Claude effort level", ask_anthropic_effort,
         )
 
@@ -729,7 +685,6 @@ def get_user_selections():
         "asset_type": asset_type.value,
         "analysis_date": analysis_date,
         "analysts": selected_analysts,
-        "research_depth": selected_research_depth,
         "llm_provider": selected_llm_provider.lower(),
         "backend_url": backend_url,
         "shallow_thinker": selected_shallow_thinker,
@@ -766,18 +721,15 @@ def save_report_to_disk(final_state, ticker: str, save_path: Path):
 
 
 def display_complete_report(final_state):
-    """Display the complete analysis report sequentially (avoids truncation)."""
+    """Display the current seven-agent report sequentially."""
     console.print()
     console.print(Rule("Complete Analysis Report", style="bold green"))
 
-    # I. Analyst Team Reports
     analysts = []
     if final_state.get("market_report"):
         analysts.append(("Market Analyst", final_state["market_report"]))
-    if final_state.get("sentiment_report"):
-        analysts.append(("Sentiment Analyst", final_state["sentiment_report"]))
     if final_state.get("news_report"):
-        analysts.append(("News Analyst", final_state["news_report"]))
+        analysts.append(("News & Sentiment Analyst", final_state["news_report"]))
     if final_state.get("fundamentals_report"):
         analysts.append(("Fundamentals Analyst", final_state["fundamentals_report"]))
     if analysts:
@@ -785,116 +737,65 @@ def display_complete_report(final_state):
         for title, content in analysts:
             console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
 
-    # II. Research Team Reports
-    if final_state.get("investment_debate_state"):
-        debate = final_state["investment_debate_state"]
-        research = []
-        if debate.get("bull_history"):
-            research.append(("Bull Researcher", debate["bull_history"]))
-        if debate.get("bear_history"):
-            research.append(("Bear Researcher", debate["bear_history"]))
-        if debate.get("judge_decision"):
-            research.append(("Research Manager", debate["judge_decision"]))
-        if research:
-            console.print(Panel("[bold]II. Research Team Decision[/bold]", border_style="magenta"))
-            for title, content in research:
-                console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
+    research = []
+    if final_state.get("bull_thesis"):
+        research.append(("Bull Researcher", final_state["bull_thesis"]))
+    if final_state.get("bear_thesis"):
+        research.append(("Bear Researcher", final_state["bear_thesis"]))
+    if research:
+        console.print(Panel("[bold]II. Bull / Bear Research[/bold]", border_style="magenta"))
+        for title, content in research:
+            console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
 
-    # III. Trading Team
-    if final_state.get("trader_investment_plan"):
-        console.print(Panel("[bold]III. Trading Team Plan[/bold]", border_style="yellow"))
-        console.print(Panel(Markdown(final_state["trader_investment_plan"]), title="Trader", border_style="blue", padding=(1, 2)))
+    if final_state.get("final_trade_decision"):
+        console.print(Panel("[bold]III. Portfolio Manager Decision[/bold]", border_style="green"))
+        console.print(Panel(Markdown(final_state["final_trade_decision"]), title="Portfolio Manager", border_style="blue", padding=(1, 2)))
 
-    # IV. Risk Management Team
-    if final_state.get("risk_debate_state"):
-        risk = final_state["risk_debate_state"]
-        risk_reports = []
-        if risk.get("aggressive_history"):
-            risk_reports.append(("Aggressive Analyst", risk["aggressive_history"]))
-        if risk.get("conservative_history"):
-            risk_reports.append(("Conservative Analyst", risk["conservative_history"]))
-        if risk.get("neutral_history"):
-            risk_reports.append(("Neutral Analyst", risk["neutral_history"]))
-        if risk_reports:
-            console.print(Panel("[bold]IV. Risk Management Team Decision[/bold]", border_style="red"))
-            for title, content in risk_reports:
-                console.print(Panel(Markdown(content), title=title, border_style="blue", padding=(1, 2)))
-
-        # V. Portfolio Manager Decision
-        if risk.get("judge_decision"):
-            console.print(Panel("[bold]V. Portfolio Manager Decision[/bold]", border_style="green"))
-            console.print(Panel(Markdown(risk["judge_decision"]), title="Portfolio Manager", border_style="blue", padding=(1, 2)))
+    if final_state.get("audit_report"):
+        console.print(Panel("[bold]IV. Decision Audit[/bold]", border_style="yellow"))
+        console.print(Panel(Markdown(final_state["audit_report"]), title="Decision Auditor", border_style="blue", padding=(1, 2)))
 
 
-def update_research_team_status(status):
-    """Update status for research team members (not Trader)."""
-    research_team = ["Bull Researcher", "Bear Researcher", "Research Manager"]
-    for agent in research_team:
-        message_buffer.update_agent_status(agent, status)
-
-
-# Ordered list of analysts for status transitions
-ANALYST_ORDER = ["market", "social", "news", "fundamentals"]
+# Analyst status mappings for the three parallel private subgraphs.
+ANALYST_ORDER = ["market", "news", "fundamentals"]
 ANALYST_AGENT_NAMES = {
     "market": "Market Analyst",
-    "social": "Sentiment Analyst",
-    "news": "News Analyst",
+    "news": "News & Sentiment Analyst",
     "fundamentals": "Fundamentals Analyst",
 }
 ANALYST_REPORT_MAP = {
     "market": "market_report",
-    "social": "sentiment_report",
     "news": "news_report",
     "fundamentals": "fundamentals_report",
 }
 
 
 def update_analyst_statuses(message_buffer, chunk, wall_time_tracker=None):
-    """Update analyst statuses based on accumulated report state.
-
-    Logic:
-    - Store new report content from the current chunk if present
-    - Check accumulated report_sections (not just current chunk) for status
-    - Analysts with reports = completed
-    - First analyst without report = in_progress
-    - Remaining analysts without reports = pending
-    - When all analysts done, set Bull Researcher to in_progress
-    """
+    """Synchronize progress for analysts that actually run in parallel."""
     selected = message_buffer.selected_analysts
-    found_active = False
 
     if wall_time_tracker is not None:
         sync_analyst_tracker_from_chunk(wall_time_tracker, chunk)
 
+    all_complete = bool(selected)
     for analyst_key in ANALYST_ORDER:
         if analyst_key not in selected:
             continue
-
         agent_name = ANALYST_AGENT_NAMES[analyst_key]
         report_key = ANALYST_REPORT_MAP[analyst_key]
-
-        # Capture new report content from current chunk
         if chunk.get(report_key):
             message_buffer.update_report_section(report_key, chunk[report_key])
-
-        # Determine status from accumulated sections, not just current chunk
         has_report = bool(message_buffer.report_sections.get(report_key))
+        message_buffer.update_agent_status(
+            agent_name, "completed" if has_report else "in_progress"
+        )
+        all_complete = all_complete and has_report
 
-        if has_report:
-            message_buffer.update_agent_status(agent_name, "completed")
-        elif not found_active:
-            message_buffer.update_agent_status(agent_name, "in_progress")
-            found_active = True
-        else:
-            message_buffer.update_agent_status(agent_name, "pending")
-
-    # When all analysts complete, transition research team to in_progress
-    if (
-        not found_active
-        and selected
-        and message_buffer.agent_status.get("Bull Researcher") == "pending"
-    ):
-        message_buffer.update_agent_status("Bull Researcher", "in_progress")
+    if all_complete:
+        if message_buffer.agent_status.get("Bull Researcher") == "pending":
+            message_buffer.update_agent_status("Bull Researcher", "in_progress")
+        if message_buffer.agent_status.get("Bear Researcher") == "pending":
+            message_buffer.update_agent_status("Bear Researcher", "in_progress")
 
 def extract_content_string(content):
     """Extract string content from various message formats.
@@ -972,34 +873,19 @@ def format_tool_args(args, max_length=80) -> str:
     return result
 
 def _build_run_config(selections: dict, checkpoint: bool | None) -> dict:
-    """Assemble the run config from interactive selections, honoring env precedence.
-
-    Round counts and checkpoint follow "explicit env/flag wins": an env-applied
-    value on DEFAULT_CONFIG is preserved unless the user overrode it on the CLI.
-    """
+    """Assemble run config while preserving environment overrides."""
     config = DEFAULT_CONFIG.copy()
-    # Research depth sets both round counts, but an explicit env override
-    # (TRADINGAGENTS_MAX_DEBATE_ROUNDS / _MAX_RISK_ROUNDS) wins over the
-    # interactive selection — leave the env-applied value in place (#977).
-    if not os.environ.get("TRADINGAGENTS_MAX_DEBATE_ROUNDS"):
-        config["max_debate_rounds"] = selections["research_depth"]
-    if not os.environ.get("TRADINGAGENTS_MAX_RISK_ROUNDS"):
-        config["max_risk_discuss_rounds"] = selections["research_depth"]
     config["quick_think_llm"] = selections["shallow_thinker"]
     config["deep_think_llm"] = selections["deep_thinker"]
     config["backend_url"] = selections["backend_url"]
     config["llm_provider"] = selections["llm_provider"].lower()
-    # Provider-specific thinking configuration
     config["google_thinking_level"] = selections.get("google_thinking_level")
     config["openai_reasoning_effort"] = selections.get("openai_reasoning_effort")
     config["anthropic_effort"] = selections.get("anthropic_effort")
     config["output_language"] = selections.get("output_language", "English")
-    # --checkpoint/--no-checkpoint overrides only when explicitly given; omitting
-    # the flag preserves TRADINGAGENTS_CHECKPOINT_ENABLED / the default (#976).
     if checkpoint is not None:
         config["checkpoint_enabled"] = checkpoint
     return config
-
 
 def run_analysis(checkpoint: bool | None = None):
     # First get all user selections
@@ -1098,10 +984,10 @@ def run_analysis(checkpoint: bool | None = None):
         )
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
-        # Update agent status to in_progress for the first analyst
-        first_analyst = get_initial_analyst_node(analyst_execution_plan)
-        message_buffer.update_agent_status(first_analyst, "in_progress")
-        analyst_wall_time_tracker.mark_started(selected_analyst_keys[0])
+        # All selected analysts fan out from START and begin concurrently.
+        for spec in analyst_execution_plan.specs:
+            message_buffer.update_agent_status(spec.agent_node, "in_progress")
+            analyst_wall_time_tracker.mark_started(spec.key)
         update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
         # Create spinner text
@@ -1168,76 +1054,31 @@ def run_analysis(checkpoint: bool | None = None):
                     wall_time_tracker=analyst_wall_time_tracker,
                 )
 
-                # Research Team - Handle Investment Debate State
-                if chunk.get("investment_debate_state"):
-                    debate_state = chunk["investment_debate_state"]
-                    bull_hist = debate_state.get("bull_history", "").strip()
-                    bear_hist = debate_state.get("bear_history", "").strip()
-                    judge = debate_state.get("judge_decision", "").strip()
+                # Bull/Bear write independent hypotheses into distinct state keys.
+                if chunk.get("bull_thesis"):
+                    message_buffer.update_report_section("bull_thesis", chunk["bull_thesis"])
+                    message_buffer.update_agent_status("Bull Researcher", "completed")
+                if chunk.get("bear_thesis"):
+                    message_buffer.update_report_section("bear_thesis", chunk["bear_thesis"])
+                    message_buffer.update_agent_status("Bear Researcher", "completed")
 
-                    # Only update status when there's actual content
-                    if bull_hist or bear_hist:
-                        update_research_team_status("in_progress")
-                    if bull_hist:
-                        message_buffer.update_report_section(
-                            "investment_plan", f"### Bull Researcher Analysis\n{bull_hist}"
-                        )
-                    if bear_hist:
-                        message_buffer.update_report_section(
-                            "investment_plan", f"### Bear Researcher Analysis\n{bear_hist}"
-                        )
-                    if judge:
-                        message_buffer.update_report_section(
-                            "investment_plan", f"### Research Manager Decision\n{judge}"
-                        )
-                        update_research_team_status("completed")
-                        message_buffer.update_agent_status("Trader", "in_progress")
+                bull_done = message_buffer.agent_status.get("Bull Researcher") == "completed"
+                bear_done = message_buffer.agent_status.get("Bear Researcher") == "completed"
+                if bull_done and bear_done and message_buffer.agent_status.get("Portfolio Manager") == "pending":
+                    message_buffer.update_agent_status("Portfolio Manager", "in_progress")
 
-                # Trading Team
-                if chunk.get("trader_investment_plan"):
+                if chunk.get("final_trade_decision"):
                     message_buffer.update_report_section(
-                        "trader_investment_plan", chunk["trader_investment_plan"]
+                        "final_trade_decision", chunk["final_trade_decision"]
                     )
-                    if message_buffer.agent_status.get("Trader") != "completed":
-                        message_buffer.update_agent_status("Trader", "completed")
-                        message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
+                    message_buffer.update_agent_status("Portfolio Manager", "completed")
+                    message_buffer.update_agent_status("Decision Auditor", "in_progress")
 
-                # Risk Management Team - Handle Risk Debate State
-                if chunk.get("risk_debate_state"):
-                    risk_state = chunk["risk_debate_state"]
-                    agg_hist = risk_state.get("aggressive_history", "").strip()
-                    con_hist = risk_state.get("conservative_history", "").strip()
-                    neu_hist = risk_state.get("neutral_history", "").strip()
-                    judge = risk_state.get("judge_decision", "").strip()
-
-                    if agg_hist:
-                        if message_buffer.agent_status.get("Aggressive Analyst") != "completed":
-                            message_buffer.update_agent_status("Aggressive Analyst", "in_progress")
-                        message_buffer.update_report_section(
-                            "final_trade_decision", f"### Aggressive Analyst Analysis\n{agg_hist}"
-                        )
-                    if con_hist:
-                        if message_buffer.agent_status.get("Conservative Analyst") != "completed":
-                            message_buffer.update_agent_status("Conservative Analyst", "in_progress")
-                        message_buffer.update_report_section(
-                            "final_trade_decision", f"### Conservative Analyst Analysis\n{con_hist}"
-                        )
-                    if neu_hist:
-                        if message_buffer.agent_status.get("Neutral Analyst") != "completed":
-                            message_buffer.update_agent_status("Neutral Analyst", "in_progress")
-                        message_buffer.update_report_section(
-                            "final_trade_decision", f"### Neutral Analyst Analysis\n{neu_hist}"
-                        )
-                    if judge and message_buffer.agent_status.get("Portfolio Manager") != "completed":
+                if chunk.get("audit_report"):
+                    message_buffer.update_report_section("audit_report", chunk["audit_report"])
+                    message_buffer.update_agent_status("Decision Auditor", "completed")
+                    if str(chunk.get("audit_status", "")).upper() == "REVISE":
                         message_buffer.update_agent_status("Portfolio Manager", "in_progress")
-                        message_buffer.update_report_section(
-                            "final_trade_decision", f"### Portfolio Manager Decision\n{judge}"
-                        )
-                        message_buffer.update_agent_status("Aggressive Analyst", "completed")
-                        message_buffer.update_agent_status("Conservative Analyst", "completed")
-                        message_buffer.update_agent_status("Neutral Analyst", "completed")
-                        message_buffer.update_agent_status("Portfolio Manager", "completed")
-
                 # Update the display
                 update_display(layout, stats_handler=stats_handler, start_time=start_time)
 
