@@ -9,11 +9,11 @@
 ![License](https://img.shields.io/badge/License-Apache--2.0-green)
 
 > 基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 二次开发的 A 股多智能体投研系统。  
-> 项目聚焦 **候选发现 → 证据约束研究 → 多视角研判 → 独立审计**，不执行自动交易，不构成投资建议。
+> 项目聚焦 **候选发现 → 证据约束研究 → 多视角研判 → 独立审计 → 工程评测**，不执行自动交易，不构成投资建议。
 
 ## 30 秒看懂这个项目
 
-传统 LLM 股票分析容易遇到四类工程问题：**候选股票靠模型“猜”**、**历史研究混入未来数据**、**多 Agent 重复复述导致 Token/延迟膨胀**、**最终结论缺少独立校验**。
+传统 LLM 股票分析常见四类工程问题：**候选股票靠模型“猜”**、**历史研究混入未来数据**、**多 Agent 重复复述导致 Token/延迟膨胀**、**最终结论缺少独立校验**。
 
 本项目针对这些问题做了系统化改造：
 
@@ -22,6 +22,7 @@
 - 将原始多轮链路裁剪为 **7-Agent 并行 LangGraph**，分析师与 Bull/Bear 两阶段 Fan-Out/Fan-In；
 - 增加 **Decision Auditor**，对最终结论做事实、数字、PIT 与证据一致性检查；
 - 通过 **Finance MCP + Qdrant Hybrid RAG** 标准化工具与知识检索；
+- 提供 **Agent Evaluation + Outcome Backtest**，把“工程质量”和“市场结果”分开评估；
 - 提供 **FastAPI + 浏览器 Chat UI + Docker Compose**，支持本地服务化运行。
 
 ## 核心能力
@@ -36,8 +37,10 @@
 | Finance MCP | Streamable HTTP + Local fallback + allowlist | 解耦 Agent 与金融数据工具 |
 | Hybrid RAG | Qdrant Dense + BM25 + RRF + 可选 Reranker | 为研究结论提供可追溯知识证据 |
 | 多轮会话 | Router + thread_id + SQLite | 复用已审计研究上下文 |
+| Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |
+| Outcome Backtest | Rating vs. realized / benchmark return | 将“研究质量评估”和“市场结果评估”分离 |
 | 服务化 | FastAPI / Chat UI / Docker Compose | 提升可复现性和演示效率 |
-| 可观测性 | LangSmith Trace | 观察 LLM / Tool / Agent 调用链 |\n| Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |\n| Outcome Backtest | Rating vs. realized / benchmark return | 将“研究质量评估”和“市场结果评估”分离 |
+| 可观测性 | LangSmith Trace | 观察 LLM / Tool / Agent 调用链 |
 
 ## 系统架构
 
@@ -89,8 +92,9 @@ flowchart TD
 | 工具集成 | 本地工具为主 | MCP Server + Client fallback + 外部工具 allowlist |
 | 知识检索 | 非核心 | Qdrant Dense + BM25 + RRF + PIT filter |
 | 交互 | CLI 为主 | 多轮 Conversation Router + SQLite + Web Chat |
+| 评估 | 以功能验证为主 | Agent Evaluation + Outcome Backtest |
 | 部署 | 本地执行 | FastAPI + Docker Compose |
-| 验证 | 上游测试 | Agent / RAG / MCP / PIT / Conversation + Evaluation 回归测试 |
+| 验证 | 上游测试 | Agent / RAG / MCP / PIT / Conversation / Evaluation 回归测试 |
 
 详细设计见 [docs/ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)。
 
@@ -113,7 +117,7 @@ pip install -e ".[agent,dev]"
 cp .env.example .env
 ```
 
-至少配置一个可用 LLM Provider 的 API Key。其余 MCP、RAG、iFinD、LangSmith 能力都可以按需开启。
+至少配置一个可用 LLM Provider 的 API Key。MCP、RAG、iFinD、LangSmith 能力均可按需开启。
 
 ### 2. 数据源预检
 
@@ -132,13 +136,19 @@ python scripts/discover_a_share.py \
   --top 10
 ```
 
-### 4. 单股深度研究
+### 4. 候选发现 Agent Demo
+
+```bash
+python scripts/discovery_agent_demo.py --date 2026-08-20
+```
+
+### 5. 单股深度研究
 
 ```bash
 python -m cli.main analyze
 ```
 
-### 5. FastAPI / Chat UI
+### 6. FastAPI / Chat UI
 
 ```bash
 uvicorn service.app:app --host 0.0.0.0 --port 8000
@@ -150,7 +160,7 @@ uvicorn service.app:app --host 0.0.0.0 --port 8000
 - Swagger：`http://localhost:8000/docs`
 - 浏览器 Chat UI：`http://localhost:8000/ui/`
 
-### 6. Docker Compose
+### 7. Docker Compose
 
 ```bash
 cp .env.example .env
@@ -204,13 +214,17 @@ multi-agent-trading/
 ├── tradingagents/
 │   ├── agents/          # Analysts / Researchers / Manager / Auditor
 │   ├── graph/           # LangGraph、Subgraph、Fan-In/Fan-Out
-│   ├── discovery/       # A 股候选发现与多因子筛选
+│   ├── discovery/       # A 股候选发现、多因子筛选、Coordinator Agent
 │   ├── conversation/    # 多轮会话路由与状态
 │   ├── mcp/             # Finance MCP Server / adapters
 │   ├── rag/             # Qdrant Hybrid RAG
-│   └── dataflows/       # 行情、财务、公告等数据适配
+│   ├── evaluation/      # Agent 轨迹、PIT、工具调用与报告质量评测
+│   ├── backtest/        # 评级与实际/基准收益结果评估
+│   └── dataflows/       # 行情、财务、公告、宏观等数据适配
+├── evaluation/datasets/ # Agent Evaluation 样例数据集
+├── examples/            # RAG 等可复现实例数据
 ├── service/             # FastAPI + Web Chat UI
-├── scripts/             # 数据预检、候选发现、RAG ingest、Chat CLI
+├── scripts/             # 数据预检、候选发现、RAG ingest、Demo、Chat CLI
 ├── tests/               # 回归测试
 ├── docs/                # 工程设计说明
 ├── Dockerfile
@@ -220,18 +234,19 @@ multi-agent-trading/
 
 ## 验证与可复现性
 
-本地构建环境记录的离线回归结果：
+历史本地构建记录为：
 
 ```text
 55 passed, 1 skipped
 ```
 
-详见 [V1.4_VALIDATION.md](V1.4_VALIDATION.md)。
+详见 [V1.4_VALIDATION.md](V1.4_VALIDATION.md)。当前分支进一步增加了 Evaluation / Backtest / import smoke tests，并通过 GitHub Actions 持续验证。
 
-同时仓库使用 GitHub Actions 在 Push / Pull Request 上自动执行：
+CI 在 Push / Pull Request 上执行：
 
 ```bash
 python -m compileall -q tradingagents service scripts
+python -c "from service.app import app; assert app.title"
 pytest -q
 docker build .
 ```
@@ -264,7 +279,16 @@ Portfolio Manager 负责形成最终观点，本身不适合作为自己的校�
 
 若发现实质问题，可通过 LangGraph 条件边触发有限次数修订。
 
-### 为什么单独做 Agent Evaluation\n\n股票涨跌不能直接回答“Agent 工程是否可靠”。因此项目把两类评估拆开：\n\n- **Agent Evaluation**：工具是否选对、参数日期是否越界、轨迹是否符合预期、最终报告数字是否能在上游证据中找到；\n- **Outcome Backtest**：历史研究评级之后的实际收益、相对基准收益、方向命中率、回撤和 Sharpe。\n\n这样可以避免把偶然的市场结果误当成 Agent 架构质量，也避免只看单元测试而忽略最终输出。\n\n### 为什么要做 PIT-aware RAG
+### 为什么单独做 Agent Evaluation
+
+股票涨跌不能直接回答“Agent 工程是否可靠”。因此项目把两类评估拆开：
+
+- **Agent Evaluation**：工具是否选对、参数日期是否越界、轨迹是否符合预期、最终报告数字是否能在上游证据中找到；
+- **Outcome Backtest**：历史研究评级之后的实际收益、相对基准收益、方向命中率、回撤和 Sharpe。
+
+这样可以避免把偶然的市场结果误当成 Agent 架构质量，也避免只看单元测试而忽略最终输出。
+
+### 为什么要做 PIT-aware RAG
 
 普通 RAG 只关注“相关不相关”，历史投研还必须回答“当时能不能看到”。因此检索同时约束：
 
@@ -295,7 +319,7 @@ publish_date <= as_of_date
 
 本项目基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 二次开发。原项目采用 Apache License 2.0，本仓库保留原许可证，并在 [NOTICE](NOTICE) 中说明原始作者与二次开发范围。
 
-如果你想快速理解“哪些是上游、哪些是本项目新增”，优先阅读：
+如果只阅读 15 分钟，建议优先看：
 
 1. `tradingagents/graph/setup.py`
 2. `tradingagents/discovery/`
@@ -303,7 +327,9 @@ publish_date <= as_of_date
 4. `tradingagents/mcp/`
 5. `tradingagents/rag/`
 6. `tradingagents/conversation/`
-7. `tradingagents/evaluation/`\n8. `tradingagents/backtest/`\n9. `service/app.py`
+7. `tradingagents/evaluation/`
+8. `tradingagents/backtest/`
+9. `service/app.py`
 
 ---
 
