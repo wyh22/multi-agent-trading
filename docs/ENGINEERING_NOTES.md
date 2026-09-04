@@ -76,7 +76,6 @@ Fund. ──┘                   └─> Bear ─┼─> Portfolio Manager ─>
 3. RAG 查询要求 `publish_date <= as_of_date`；
 4. Hybrid RAG 在存储过滤后再做一次日期防御性检查；
 5. Auditor 检查最终报告是否引用截止日后的信息；
-6. iFinD 历史序列 Adapter 对超过截止日的请求直接拒绝。
 
 这是本项目比“让多个 Agent 讨论股票”更重要的工程点之一。
 
@@ -110,7 +109,6 @@ Finance MCP 的主要价值是把金融工具从 Agent 运行时解耦出来：
 - Docker 中 finance-mcp 可以独立部署；
 - MCP 不可用时允许 Local fallback；
 - 外部 MCP 工具默认不直接暴露，需 allowlist；
-- iFinD refresh token 保留在服务端配置，不进入 LLM 上下文。
 
 对应代码：
 
@@ -178,12 +176,10 @@ pytest -q
 55 passed, 1 skipped
 ```
 
-覆盖包括 Agent 拓扑、MCP/RAG 架构、PIT、会话、iFinD Adapter 等。
 
 仍需要外部环境才能完整验证的部分：
 
 - 实际 LLM Provider；
-- iFinD entitlement；
 - 外部第三方 MCP；
 - 实时行情接口稳定性；
 - 完整 Docker 在线依赖拉取。
