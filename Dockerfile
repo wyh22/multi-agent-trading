@@ -16,6 +16,7 @@ COPY tradingagents ./tradingagents
 COPY cli ./cli
 COPY service ./service
 COPY scripts ./scripts
+COPY examples ./examples
 
 RUN pip install --upgrade pip && pip install -e '.[agent]'
 
