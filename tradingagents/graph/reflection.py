@@ -33,7 +33,7 @@ class Reflector:
         final_decision: str,
         raw_return: float,
         alpha_return: float,
-        benchmark_name: str = "SPY",
+        benchmark_name: str = "000300.SH",
     ) -> str:
         """Single reflection call on the final trade decision with outcome context.
 
