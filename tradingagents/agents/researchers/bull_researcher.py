@@ -1,64 +1,40 @@
+"""看多研究员：基于三类分析师证据独立形成一次性看多论点。"""
+
 from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
-    opponent_argument_or_opening,
 )
+from tradingagents.agents.utils.context_compaction import build_analyst_context
 
 
 def create_bull_researcher(llm):
+    """创建只读取分析证据、只写入 bull_thesis 的看多研究员。"""
+
     def bull_node(state) -> dict:
-        investment_debate_state = state["investment_debate_state"]
-        history = investment_debate_state.get("history", "")
-        bull_history = investment_debate_state.get("bull_history", "")
-
-        current_response = opponent_argument_or_opening(
-            investment_debate_state.get("current_response", ""), "bear analyst"
-        )
-        market_research_report = state["market_report"]
-        sentiment_report = state["sentiment_report"]
-        news_report = state["news_report"]
-        fundamentals_report = state["fundamentals_report"]
         instrument_context = get_instrument_context_from_state(state)
-        asset_type = state.get("asset_type", "stock")
-        target_label = "stock" if asset_type == "stock" else "asset"
-        fundamentals_label = (
-            "Company fundamentals report"
-            if asset_type == "stock"
-            else "Asset fundamentals report (may be unavailable for crypto)"
-        )
+        evidence_context = build_analyst_context(state)
 
-        prompt = f"""You are a Bull Analyst advocating for investing in the {target_label}. Your task is to build a strong, evidence-based case emphasizing growth potential, competitive advantages, and positive market indicators. Leverage the provided research and data to address concerns and counter bearish arguments effectively.
+        prompt = f"""
+你是 A 股研究系统中的看多研究员。你的职责不是与另一名研究员多轮辩论，
+而是基于已经完成的市场、新闻/公告/宏观、基本面证据，独立形成一次紧凑的看多假设。
 
-Key points to focus on:
-- Growth Potential: Highlight the company's market opportunities, revenue projections, and scalability.
-- Competitive Advantages: Emphasize factors like unique products, strong branding, or dominant market positioning.
-- Positive Indicators: Use financial health, industry trends, and recent positive news as evidence.
-- Bear Counterpoints: Critically analyze the bear argument with specific data and sound reasoning, addressing concerns thoroughly and showing why the bull perspective holds stronger merit.
-- Engagement: Present your argument in a conversational style, engaging directly with the bear analyst's points and debating effectively rather than just listing data.
-
-Resources available:
 {instrument_context}
-Market research report: {market_research_report}
-Social media sentiment report: {sentiment_report}
-Latest world affairs news: {news_report}
-{fundamentals_label}: {fundamentals_report}
-Conversation history of the debate: {history}
-Last bear argument: {current_response}
-Use this information to deliver a compelling bull argument, refute the bear's concerns, and engage in a dynamic debate that demonstrates the strengths of the bull position.
-""" + get_language_instruction()
+
+## 上游证据
+{evidence_context or '当前没有可用的上游证据。'}
+
+要求：
+1. 只使用上游证据，不调用外部工具，不补充未经当前证据支持的新事实。
+2. 优先提炼能够支持上涨或基本面改善的驱动因素、竞争优势、催化与验证条件。
+3. 明确指出看多逻辑中最脆弱、仍需验证的部分，避免单边乐观。
+4. 不假设 Bear Researcher 已经发言，也不要编造对手观点。
+5. 不给出没有证据支持的精确目标价、收益率或仓位数字。
+6. 输出保持紧凑，建议约 500~900 个中文字符。
+
+{get_language_instruction()}
+""".strip()
 
         response = llm.invoke(prompt)
-
-        argument = f"Bull Analyst: {response.content}"
-
-        new_investment_debate_state = {
-            "history": history + "\n" + argument,
-            "bull_history": bull_history + "\n" + argument,
-            "bear_history": investment_debate_state.get("bear_history", ""),
-            "current_response": argument,
-            "count": investment_debate_state["count"] + 1,
-        }
-
-        return {"investment_debate_state": new_investment_debate_state}
+        return {"bull_thesis": str(response.content).strip()}
 
     return bull_node
