@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "TradingAgents Contributors"},
+    {name = "wyh22"},
 ]
 dependencies = [
     "langgraph>=0.2.0",
@@ -23,6 +23,7 @@ dependencies = [
     "langsmith>=0.1.0",
     "pandas>=2.0",
     "numpy>=1.26",
+    "yfinance>=0.2.40",
     "akshare>=1.14.0",
     "baostock>=0.9.3",
     "requests>=2.31",
@@ -57,6 +58,11 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.11",
 ]
+
+[project.urls]
+Repository = "https://github.com/wyh22/multi-agent-trading"
+Documentation = "https://github.com/wyh22/multi-agent-trading#readme"
+Issues = "https://github.com/wyh22/multi-agent-trading/issues"
 
 [tool.setuptools.packages.find]
 include = ["tradingagents*", "cli*"]
