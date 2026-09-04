@@ -33,6 +33,8 @@ mcp = FastMCP(
         "A-share deterministic finance tools and PIT-aware knowledge retrieval. "
         "All historical queries must pass an explicit research cutoff date."
     ),
+    host=os.getenv("MCP_HOST", "0.0.0.0"),
+    port=int(os.getenv("MCP_PORT", "8001")),
     stateless_http=True,
     json_response=True,
 )
@@ -205,11 +207,7 @@ async def health(_request):
 
 
 def main():
-    mcp.run(
-        transport="streamable-http",
-        host=os.getenv("MCP_HOST", "0.0.0.0"),
-        port=int(os.getenv("MCP_PORT", "8001")),
-    )
+    mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":
