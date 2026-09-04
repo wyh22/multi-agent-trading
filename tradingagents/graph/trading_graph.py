@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import yfinance as yf
 from langgraph.prebuilt import ToolNode
 
 # Import the abstract tool methods from agent_utils
@@ -250,56 +249,64 @@ class TradingAgentsGraph:
         }
 
     def _resolve_benchmark(self, ticker: str) -> str:
-        """Pick the benchmark ticker for alpha calculation against ``ticker``.
-
-        ``config["benchmark_ticker"]`` overrides everything when set; otherwise
-        the suffix map matches the ticker's exchange suffix (e.g. ``.T`` for
-        Tokyo). US-listed tickers without a dotted suffix fall through to the
-        empty-suffix entry (SPY by default). Unrecognised suffixes (including
-        US tickers with dots like ``BRK.B``) also fall back to the empty-suffix
-        entry, which is the right default because the alpha calculation works
-        in USD.
-        """
+        """Pick an A-share benchmark for realized-return attribution."""
         explicit = self.config.get("benchmark_ticker")
         if explicit:
-            return explicit
+            return str(explicit)
+
+        from tradingagents.dataflows.symbol_utils import normalize_a_share_symbol
+
+        canonical = normalize_a_share_symbol(ticker)
         benchmark_map = self.config.get("benchmark_map", {})
-        ticker_upper = ticker.upper()
-        for suffix, benchmark in benchmark_map.items():
-            if suffix and ticker_upper.endswith(suffix.upper()):
-                return benchmark
-        return benchmark_map.get("", "SPY")
+        if isinstance(canonical, str) and "." in canonical:
+            suffix = "." + canonical.rsplit(".", 1)[1].upper()
+            if suffix in benchmark_map:
+                return str(benchmark_map[suffix])
+        return str(benchmark_map.get("", "000300.SH"))
 
     def _fetch_returns(
         self, ticker: str, trade_date: str, holding_days: int = 5,
-        benchmark: str = "SPY",
+        benchmark: str = "000300.SH",
     ) -> tuple[float | None, float | None, int | None, str | None]:
-        """Fetch raw and alpha return for ticker over holding_days from trade_date.
+        """Resolve A-share raw/benchmark-relative return using BaoStock.
 
-        ``benchmark`` is the index used as the alpha baseline (resolved by the
-        caller via ``_resolve_benchmark``). Returns ``(raw_return, alpha_return,
-        holding_days, resolution_date)`` — where ``resolution_date`` is the date
-        of the last price bar used, i.e. when the outcome became known (#1251) —
-        or ``(None, None, None, None)`` when the outcome cannot be settled yet:
-        the full holding window has not traded (#1169), or the symbol is delisted
-        or unreachable.
+        The function remains deliberately best-effort because it runs as deferred
+        memory reflection. If the holding window has not completed or either
+        series is unavailable, the entry stays pending for a later run.
         """
-        from tradingagents.dataflows.symbol_utils import normalize_symbol
+        from tradingagents.dataflows.baostock import (
+            load_index_ohlcv_baostock,
+            load_ohlcv_baostock,
+        )
 
         try:
             start = datetime.strptime(trade_date, "%Y-%m-%d")
-            end = start + timedelta(days=holding_days + 7)  # buffer for weekends/holidays
+            end = start + timedelta(days=holding_days + 14)
             end_str = end.strftime("%Y-%m-%d")
 
-            # Normalize so the realized-return lookup hits the same instrument
-            # the analysis priced (e.g. XAUUSD -> GC=F) (#984). The benchmark is
-            # already a canonical Yahoo symbol from ``_resolve_benchmark``.
-            stock = yf.Ticker(normalize_symbol(ticker)).history(start=trade_date, end=end_str)
-            bench = yf.Ticker(benchmark).history(start=trade_date, end=end_str)
+            stock = load_ohlcv_baostock(
+                ticker,
+                end_str,
+                lookback_days=max(holding_days + 45, 90),
+                adjust="qfq",
+            )
+            try:
+                bench = load_index_ohlcv_baostock(
+                    benchmark,
+                    end_str,
+                    lookback_days=max(holding_days + 45, 90),
+                )
+            except Exception:
+                bench = load_ohlcv_baostock(
+                    benchmark,
+                    end_str,
+                    lookback_days=max(holding_days + 45, 90),
+                    adjust="qfq",
+                )
 
-            # Require the full holding window in both series. A rerun before it
-            # has traded leaves the entry pending to retry next run, rather than
-            # settling on a premature partial return (#1169).
+            stock = stock[stock["Date"] >= start].sort_values("Date").reset_index(drop=True)
+            bench = bench[bench["Date"] >= start].sort_values("Date").reset_index(drop=True)
+
             if len(stock) <= holding_days or len(bench) <= holding_days:
                 return None, None, None, None
 
@@ -312,14 +319,13 @@ class TradingAgentsGraph:
                 / bench["Close"].iloc[0]
             )
             alpha = raw - bench_ret
-            # The date of the last price bar used is when this outcome became
-            # known — the point-in-time cutoff for injecting the lesson (#1251).
-            resolution_date = stock.index[holding_days].strftime("%Y-%m-%d")
+            resolution_date = stock["Date"].iloc[holding_days].strftime("%Y-%m-%d")
             return raw, alpha, holding_days, resolution_date
-        except Exception as e:
+        except Exception as exc:
             logger.warning(
-                "Could not resolve outcome for %s on %s vs %s (will retry next run): %s",
-                ticker, trade_date, benchmark, e,
+                "Could not resolve BaoStock outcome for %s on %s vs %s "
+                "(will retry next run): %s",
+                ticker, trade_date, benchmark, exc,
             )
             return None, None, None, None
 
