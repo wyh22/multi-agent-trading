@@ -20,7 +20,6 @@ from tradingagents.agents.utils.news_data_tools import (
     get_insider_transactions,
     get_news,
 )
-from tradingagents.agents.utils.prediction_markets_tools import get_prediction_markets
 from tradingagents.agents.utils.technical_indicators_tools import get_indicators
 
 # Public surface: the data tools are imported here so agents and the graph
@@ -36,7 +35,6 @@ __all__ = [
     "get_global_news",
     "get_insider_transactions",
     "get_macro_indicators",
-    "get_prediction_markets",
     "get_verified_market_snapshot",
     "build_instrument_context",
     "resolve_instrument_identity",
@@ -52,30 +50,14 @@ def get_language_instruction() -> str:
     """Return a prompt instruction for the configured output language.
 
     Returns empty string when English (default), so no extra tokens are used.
-    Applied to every agent whose output reaches the saved report —
-    analysts, researchers, debaters, research manager, trader, and
-    portfolio manager — so a non-English run produces a fully localized
-    report rather than a mix of languages.
+    Applied to report-producing analysts, Bull/Bear researchers and the
+    portfolio manager so a non-English run stays consistently localized.
     """
     from tradingagents.dataflows.config import get_config
     lang = get_config().get("output_language", "English")
     if lang.strip().lower() == "english":
         return ""
     return f" Write your entire response in {lang}."
-
-
-def opponent_argument_or_opening(text: str, opponent: str) -> str:
-    """Opponent's latest argument, or an explicit opening marker when empty.
-
-    The first speaker in each debate round receives an empty opponent response;
-    interpolating it into a "refute the opponent" prompt makes the model
-    fabricate the other side's position. Returning a clear "has not spoken yet"
-    marker instead lets it open with its own case (#1176).
-    """
-    text = (text or "").strip()
-    if text:
-        return text
-    return f"(The {opponent} has not spoken yet — open the debate with your own case.)"
 
 
 def _clean_identity_value(value: Any) -> str | None:
