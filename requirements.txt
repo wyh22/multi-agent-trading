@@ -7,6 +7,7 @@ langchain-google-genai>=2.0.0
 langsmith>=0.1.0
 pandas>=2.0
 numpy>=1.26
+yfinance>=0.2.40
 akshare>=1.14.0
 baostock>=0.9.3
 requests>=2.31
