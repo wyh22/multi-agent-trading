@@ -8,6 +8,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_language_instruction,
 )
 from tradingagents.agents.utils.context_compaction import build_decision_context
+from tradingagents.agents.utils.evidence_claims import claim_usage_instruction
 from tradingagents.agents.utils.structured import (
     NO_EXTERNAL_TOOLS,
     bind_structured,
@@ -44,7 +45,7 @@ def create_portfolio_manager(llm):
 
 ## 紧凑证据包
 {evidence_context}
-
+\n## Claim 类型规则\n{claim_usage_instruction()}\n
 ## 历史复盘摘要
 {past_context or '无'}
 
