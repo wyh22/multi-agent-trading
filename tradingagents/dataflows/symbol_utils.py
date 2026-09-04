@@ -148,15 +148,15 @@ def normalize_a_share_symbol(raw: str) -> str:
     if not isinstance(raw, str) or not raw.strip():
         return raw
     value = raw.strip().upper().replace(" ", "")
-    m = re.fullmatch(r"(SH|SS|SSE|SHSE|XSHG|SZ|SZSE|XSHE|BJ|BSE)(\\d{6})", value)
+    m = re.fullmatch(r"(SH|SS|SSE|SHSE|XSHG|SZ|SZSE|XSHE|BJ|BSE)(\d{6})", value)
     if m:
         exchange, code = m.groups()
         return f"{code}.{_EXCHANGE_ALIASES[exchange]}"
-    m = re.fullmatch(r"(\\d{6})\\.(SH|SS|SSE|SHSE|XSHG|SZ|SZSE|XSHE|BJ|BSE)", value)
+    m = re.fullmatch(r"(\d{6})\.(SH|SS|SSE|SHSE|XSHG|SZ|SZSE|XSHE|BJ|BSE)", value)
     if m:
         code, exchange = m.groups()
         return f"{code}.{_EXCHANGE_ALIASES[exchange]}"
-    if re.fullmatch(r"\\d{6}", value):
+    if re.fullmatch(r"\d{6}", value):
         if value[0] in ("6","5","9"):
             exchange = "SH"
         elif value[0] in ("0","3","1"):
