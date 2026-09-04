@@ -114,6 +114,19 @@ Fundamentals Analyst ───┘                    └─> Bear Researcher ─
 
 这样可以避免并行执行时不同 Analyst 的 ToolMessage 相互污染，也避免把完整工具对话反复传播到后续节点。
 
+### Claim-aware Context Compression
+
+Analyst 的完整报告仍被保留用于审计，但下游节点不再机械消费整段长文本。每个 Analyst 在最终报告中输出 4~8 条类型化 Evidence Claims：
+
+```text
+[FACT]         直接工具/检索事实
+[CALCULATION]  可追溯输入与公式的派生计算
+[INFERENCE]    基于证据形成的解释
+[CONDITIONAL]  带触发条件的未来情景
+```
+
+`evidence_claims.py` 优先读取显式标签；旧报告使用确定性规则兜底。随后按字符预算保留 Grounding Claim 与类型多样性，再把紧凑证据包交给 Bull/Bear、Portfolio Manager 和 Auditor。整个压缩过程不额外调用 LLM。
+
 ## 6. Point-in-Time 数据如何约束
 
 核心原则：
