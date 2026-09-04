@@ -324,3 +324,18 @@ def claim_boundary_instruction() -> str:
         "scenario that must include its trigger/condition. Never upgrade an "
         "inference or conditional scenario into a fact."
     )
+
+
+def claim_usage_instruction() -> str:
+    """Explain typed evidence semantics to downstream reasoning agents."""
+
+    return (
+        "The compact evidence package uses four claim types: "
+        "[FACT] = directly supported by tool/retrieved data; "
+        "[CALCULATION] = a derived result whose inputs/formula must remain traceable; "
+        "[INFERENCE] = an interpretation that must not be restated as an observed fact; "
+        "[CONDITIONAL] = a forward-looking scenario valid only when its stated trigger "
+        "or condition holds. Prefer FACT/CALCULATION for grounding, preserve the "
+        "conditions attached to CONDITIONAL claims, and treat INFERENCE as lower-level "
+        "interpretation rather than source truth."
+    )
