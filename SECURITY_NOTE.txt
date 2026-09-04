@@ -1,0 +1,3 @@
+安全说明：本修改包不包含原项目 .env 文件，也不会复制任何 API Key。
+请保留你本机已有的 .env，或从 .env.example 复制后重新填写密钥。
+不要将 .env、LangSmith Key、LLM API Key 提交到 Git 仓库。

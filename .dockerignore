@@ -1,0 +1,13 @@
+.git
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+reports/
+data_cache/
+*.sqlite
+*.db
+__MACOSX/
+.DS_Store

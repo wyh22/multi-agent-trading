@@ -1,0 +1,7 @@
+-r requirements.txt
+mcp[cli]>=2.0,<3
+langchain-mcp-adapters>=0.3.2,<0.4
+qdrant-client>=1.15,<2
+fastembed>=0.7,<1
+fastapi>=0.116,<1
+uvicorn[standard]>=0.35,<1

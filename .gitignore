@@ -1,0 +1,42 @@
+# --- Bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# --- macOS
+.DS_Store
+__MACOSX/
+._*
+
+# --- Env / virtualenvs
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- IDE
+.vscode/*
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Project-local data
+results/
+data_cache/
+*.sqlite
+*.db
+*.log
+*.out
+*.jsonl.tmp
+qdrant_storage/

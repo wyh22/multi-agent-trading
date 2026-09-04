@@ -1,0 +1,15 @@
+A-Share Multi-Agent Research
+
+This repository is a derivative work based on TradingAgents by Tauric Research:
+https://github.com/TauricResearch/TradingAgents
+
+Original project: TradingAgents: Multi-Agents LLM Financial Trading Framework
+Original authors: Yijia Xiao, Edward Sun, Di Luo, Wei Wang
+Original license: Apache License 2.0
+
+This derivative adds/refactors A-share data adaptation, deterministic candidate discovery,
+LangGraph workflow pruning and parallelization, an independent decision auditor,
+MCP-based tool exposure, PIT-aware hybrid RAG, multi-turn conversation state,
+FastAPI service endpoints, Docker Compose orchestration, and regression tests.
+
+No API keys, refresh tokens, or local .env files are intentionally included.

@@ -1,0 +1,48 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  finance-mcp:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8001
+      TRADINGAGENTS_RAG_ENABLED: "true"
+      TRADINGAGENTS_QDRANT_URL: http://qdrant:6333
+      TRADINGAGENTS_MCP_ENABLED: "false"
+    command: ["python", "-m", "tradingagents.mcp.server"]
+    depends_on:
+      - qdrant
+    ports:
+      - "8001:8001"
+
+  agent-api:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TRADINGAGENTS_MCP_ENABLED: "true"
+      TRADINGAGENTS_MCP_URL: http://finance-mcp:8001/mcp
+      TRADINGAGENTS_RAG_ENABLED: "true"
+      TRADINGAGENTS_QDRANT_URL: http://qdrant:6333
+    command: ["uvicorn", "service.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      - finance-mcp
+      - qdrant
+    ports:
+      - "8000:8000"
+    volumes:
+      - agent_state:/root/.tradingagents
+
+volumes:
+  qdrant_data:
+  agent_state:
