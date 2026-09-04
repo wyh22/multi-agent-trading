@@ -55,7 +55,7 @@ flowchart TD
 
     C --> D{LangGraph Research}
     D --> M[Market Analyst]
-    D --> N[News Analyst]
+    D --> N[News & Sentiment Analyst]
     D --> F[Fundamentals Analyst]
 
     M --> X[Analyst Fan-In]
@@ -308,12 +308,12 @@ publish_date <= as_of_date
 | 正式公告 | 巨潮资讯（CNInfo） | 公告时间不晚于研究截止日 |
 | 中国宏观 | AKShare 公共接口 | 结合统计期和发布滞后做可用日判断 |
 | 全球市场资讯 | AKShare / 财联社 | 只保留截止日前可见内容 |
-| 可选扩展 | Alpha Vantage / FRED / Prediction Market | 不作为 A 股核心链路的必要依赖 |
+| 可选扩展 | Alpha Vantage / FRED | 不作为 A 股核心链路的必要依赖 |
 
 ## 数据与安全边界
 
 - 公开仓库不包含 `.env`、API Key 或 LangSmith Key。
-- 默认 A 股数据链路以 BaoStock、AKShare、巨潮资讯为主；Alpha Vantage、FRED 与预测市场数据作为可选扩展。
+- 默认 A 股数据链路以 BaoStock、AKShare、巨潮资讯为主；Alpha Vantage 与 FRED 仅保留为可选扩展。
 - 历史选股仍可能受到历史成分数据完整性、停牌/退市样本和幸存者偏差影响。
 - 候选发现结果是 Research Shortlist，不是收益承诺。
 - 本项目不执行自动下单，不提供真实资金交易接口。
