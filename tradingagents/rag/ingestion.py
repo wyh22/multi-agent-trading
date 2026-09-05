@@ -18,6 +18,7 @@ def ingest_path(
     doc_type: str = "user_document",
     chunk_chars: int = 900,
     overlap_chars: int = 120,
+    source_name: str | None = None,
 ) -> dict:
     """Parse, chunk and upsert a user/company document into the configured RAG store."""
 
@@ -27,6 +28,7 @@ def ingest_path(
         ticker=canonical,
         publish_date=publish_date,
         doc_type=doc_type,
+        source_name=source_name,
     )
     chunks = []
     for doc in docs:
