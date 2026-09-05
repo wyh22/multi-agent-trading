@@ -40,19 +40,37 @@
 
 独立检查事实依据、PIT、数字一致性和无依据推断。首次失败允许投资组合经理修订一次，然后再次审计。
 
-## 三、可选第 8 个 Agent：候选发现协调智能体
+## 三、单股研究之前：Sector Discovery 与 Representative Pool
 
-候选发现协调智能体只负责规划工具调用，不负责直接计算因子，也不能凭训练知识推荐股票。
+默认 Discovery 已经从“自动选 Top10 股票”重构为“行业研究优先级”：
 
-其工具包括：
+```text
+Market Regime
+  -> 申万一级行业全量横截面
+  -> Momentum / Value / Dividend / Liquidity
+  -> Regime-aware Rule Rank
+  -> Optional LightGBM
+  -> Top-K Sector Research Shortlist
+  -> Representative Research Pool
+  -> 7-Agent
+```
 
-- 大盘环境分析工具
-- 申万一级行业排名工具
-- 自动候选发现工具
+Representative Pool 不是第二套投资评分。它只用行业指数权重、流动性、行业内相对强弱和数据完整性选择少量 Research Entry；不使用 PE/PB、ROE、利润增长或旧 Quality Score。
 
-确定性的 Python 算法负责“算对”，Agent 负责“决定调用什么、研究多少”。
+每个 Research Entry 会携带 `candidate_context`，但该字段明确标记为 selection prior / NOT evidence，并作为不可信数据边界处理。三类 Analyst 的私有 Subgraph 会接收该字段，但仍必须用工具独立验证；Decision Auditor 还会检查是否把行业 Style 或 Representative Score 错写成投资事实。
 
-## 四、报告体量控制
+## 四、可选协调 Agent
+
+Discovery Coordinator 只负责规划只读工具调用和研究预算，不直接计算因子，也不能凭训练知识推荐股票。当前工具包括：
+
+- 大盘环境分析工具；
+- 申万一级行业排名工具；
+- Sector-first Discovery 工具；
+- Representative Research Pool 工具。
+
+确定性的 Python / 可选量化 Ranker 负责“算对”，Coordinator 负责“决定调用什么、研究多少”。
+
+## 五、报告体量控制
 
 最终报告只拼接：
 
@@ -65,7 +83,7 @@
 
 所有独立节点原文和工具轨迹都写入 `trace/`，不再重复塞入用户报告。
 
-## 五、保留英文的范围
+## 六、保留英文的范围
 
 源码注释、文档和主要提示词均使用中文。以下内容为了兼容协议、库或模型接口保留原始英文标识：
 
