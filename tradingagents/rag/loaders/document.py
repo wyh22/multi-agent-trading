@@ -14,6 +14,11 @@ def _file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _source_meta(path: Path, source_name: str | None) -> tuple[str, str]:
+    display_name = Path(source_name or path.name).name
+    return display_name, f"upload://{display_name}"
+
+
 def _pdf_documents(
     path: Path,
     *,
@@ -21,12 +26,15 @@ def _pdf_documents(
     publish_date: str,
     doc_type: str,
     file_hash: str,
+    source_name: str | None,
 ) -> list[KnowledgeDocument]:
     try:
         import fitz  # PyMuPDF
-    except ImportError as exc:  # pragma: no cover - optional agent extra
+    except ImportError as exc:  # pragma: no cover
         raise RuntimeError("PDF 解析需要 PyMuPDF，请安装 agent 可选依赖") from exc
 
+    display_name, source_uri = _source_meta(path, source_name)
+    title = Path(display_name).stem
     documents: list[KnowledgeDocument] = []
     with fitz.open(path) as pdf:
         for page_index, page in enumerate(pdf):
@@ -38,14 +46,14 @@ def _pdf_documents(
                 KnowledgeDocument(
                     doc_id=f"{file_hash}:page:{page_no}",
                     ticker=ticker,
-                    title=f"{path.stem} - 第 {page_no} 页",
+                    title=f"{title} - 第 {page_no} 页",
                     text=text,
                     publish_date=publish_date,
                     source="uploaded-pdf",
-                    url=str(path),
+                    url=source_uri,
                     doc_type=doc_type,
                     metadata={
-                        "file_name": path.name,
+                        "file_name": display_name,
                         "file_hash": file_hash,
                         "page": page_no,
                     },
@@ -63,12 +71,14 @@ def _docx_documents(
     publish_date: str,
     doc_type: str,
     file_hash: str,
+    source_name: str | None,
 ) -> list[KnowledgeDocument]:
     try:
         from docx import Document
-    except ImportError as exc:  # pragma: no cover - optional agent extra
+    except ImportError as exc:  # pragma: no cover
         raise RuntimeError("DOCX 解析需要 python-docx，请安装 agent 可选依赖") from exc
 
+    display_name, source_uri = _source_meta(path, source_name)
     doc = Document(path)
     parts: list[str] = []
     heading_path: list[str] = []
@@ -96,14 +106,14 @@ def _docx_documents(
         KnowledgeDocument(
             doc_id=file_hash,
             ticker=ticker,
-            title=path.stem,
+            title=Path(display_name).stem,
             text=text,
             publish_date=publish_date,
             source="uploaded-docx",
-            url=str(path),
+            url=source_uri,
             doc_type=doc_type,
             metadata={
-                "file_name": path.name,
+                "file_name": display_name,
                 "file_hash": file_hash,
                 "heading_hint": heading_path[-1] if heading_path else "",
             },
@@ -118,21 +128,23 @@ def _text_documents(
     publish_date: str,
     doc_type: str,
     file_hash: str,
+    source_name: str | None,
 ) -> list[KnowledgeDocument]:
     text = path.read_text(encoding="utf-8", errors="ignore").strip()
     if not text:
         raise ValueError("文档为空")
+    display_name, source_uri = _source_meta(path, source_name)
     return [
         KnowledgeDocument(
             doc_id=file_hash,
             ticker=ticker,
-            title=path.stem,
+            title=Path(display_name).stem,
             text=text,
             publish_date=publish_date,
             source="uploaded-text",
-            url=str(path),
+            url=source_uri,
             doc_type=doc_type,
-            metadata={"file_name": path.name, "file_hash": file_hash},
+            metadata={"file_name": display_name, "file_hash": file_hash},
         )
     ]
 
@@ -143,6 +155,7 @@ def load_documents(
     ticker: str,
     publish_date: str,
     doc_type: str = "user_document",
+    source_name: str | None = None,
 ) -> list[KnowledgeDocument]:
     """Load PDF/DOCX/MD/TXT into normalized PIT-aware knowledge documents."""
 
@@ -156,6 +169,7 @@ def load_documents(
         "publish_date": publish_date,
         "doc_type": doc_type,
         "file_hash": file_hash,
+        "source_name": source_name,
     }
     if suffix == ".pdf":
         return _pdf_documents(source, **kwargs)
