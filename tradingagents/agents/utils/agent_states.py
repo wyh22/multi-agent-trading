@@ -18,6 +18,7 @@ class AgentState(MessagesState):
     company_of_interest: Annotated[str, "研究标的代码"]
     asset_type: Annotated[str, "资产类型，例如 stock 或 crypto"]
     instrument_context: Annotated[str, "启动时解析的确定性标的身份信息"]
+    candidate_context: Annotated[str, "行业发现/代表股选择来源；仅作研究路由先验，不是投资证据"]
     trade_date: Annotated[str, "研究截止日期"]
     sender: Annotated[str, "最近写入消息的智能体"]
 
