@@ -242,6 +242,9 @@ def select_representative_stocks(
         scored.get("index_weight", pd.Series(index=scored.index, dtype=float)),
         errors="coerce",
     )
+    scored["index_weight"] = raw_weight
+    if "sector_score" not in scored.columns:
+        scored["sector_score"] = 50.0
     scored["weight_score"] = _within_sector_score(
         scored.assign(index_weight_numeric=raw_weight),
         "index_weight_numeric",
