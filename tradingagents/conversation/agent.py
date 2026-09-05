@@ -710,28 +710,117 @@ class ConversationAgent:
             limit=int(self.config.get("conversation_history_turns", 12)),
         )
         thread = self.store.get_thread(tid) or thread
+        research_context = str(thread.get("research_context", "") or "")
+        observations: list[str] = []
+        used_capabilities: list[str] = []
+        supervisor_trace: list[dict[str, Any]] = []
+        max_supervisor_steps = max(
+            1,
+            int(self.config.get("conversation_supervisor_steps", 3)),
+        )
+
         action = self.supervisor.decide(
             message,
             current_ticker=resolved_ticker,
             as_of_date=cutoff,
             history=history[:-1],
-            research_context=str(thread.get("research_context", "") or ""),
+            research_context=research_context,
             force_mode=force_mode,
         )
 
-        answer, route, version_payload = self._execute_action(
-            action,
-            message=message,
-            tid=tid,
-            ticker=resolved_ticker,
-            cutoff=cutoff,
-            history=history[:-1],
-            thread=thread,
-        )
+        answer = ""
+        route = ""
+        version_payload = None
+        for step_index in range(max_supervisor_steps):
+            answer, route, version_payload = self._execute_action(
+                action,
+                message=message,
+                tid=tid,
+                ticker=resolved_ticker,
+                cutoff=cutoff,
+                history=history[:-1],
+                thread=thread,
+            )
+            capability_key = f"{action.action}:{action.target or ''}"
+            supervisor_trace.append(
+                {
+                    "step": step_index + 1,
+                    "action": action.action,
+                    "target": action.target,
+                    "route": route,
+                }
+            )
+
+            terminal = (
+                force_mode != "auto"
+                or self.supervisor.structured_llm is None
+                or action.action
+                in {"respond", "rollback", "run_skill", "run_deep_research"}
+                or (
+                    action.action == "call_tool"
+                    and (not action.target or action.target == "auto")
+                )
+                or version_payload is not None
+            )
+            if terminal:
+                break
+
+            used_capabilities.append(capability_key)
+            observations.append(
+                f"[{capability_key}]\n{answer[:6000]}"
+            )
+
+            if step_index + 1 >= max_supervisor_steps:
+                answer = self._synthesize(
+                    message=message,
+                    evidence="\n\n".join(observations),
+                    ticker=resolved_ticker,
+                    as_of_date=cutoff,
+                    research_context=research_context,
+                )
+                route = "supervisor:step_limit"
+                break
+
+            next_action = self.supervisor.decide(
+                message,
+                current_ticker=resolved_ticker,
+                as_of_date=cutoff,
+                history=history[:-1],
+                research_context=research_context,
+                force_mode=force_mode,
+                observations=observations,
+                used_capabilities=used_capabilities,
+            )
+            next_key = f"{next_action.action}:{next_action.target or ''}"
+            if next_action.action != "respond" and next_key in used_capabilities:
+                answer = self._synthesize(
+                    message=message,
+                    evidence="\n\n".join(observations),
+                    ticker=resolved_ticker,
+                    as_of_date=cutoff,
+                    research_context=research_context,
+                )
+                route = "supervisor:repeat_guard"
+                action = SupervisorAction(
+                    action="respond",
+                    objective=message,
+                    answer=answer,
+                )
+                supervisor_trace.append(
+                    {
+                        "step": step_index + 2,
+                        "action": "respond",
+                        "target": None,
+                        "route": route,
+                    }
+                )
+                break
+            action = next_action
 
         metadata: dict[str, Any] = {
             "supervisor_action": action.action,
             "supervisor_target": action.target,
+            "supervisor_trace": supervisor_trace,
         }
         if version_payload and version_payload.get("kind") == "research_version":
             payload = dict(version_payload.get("payload", {}) or {})
