@@ -9,7 +9,7 @@
 ![License](https://img.shields.io/badge/License-Apache--2.0-green)
 
 > 基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 二次开发的 A 股多智能体投研系统。  
-> 项目聚焦 **候选发现 → 证据约束研究 → 多视角研判 → 独立审计 → 工程评测**，不执行自动交易，不构成投资建议。
+> 项目聚焦 **行业发现 → 代表性个股研究 → 证据约束研判 → 独立审计 → 工程评测**，不执行自动交易，不构成投资建议。
 
 ## 30 秒看懂这个项目
 
@@ -17,7 +17,7 @@
 
 本项目针对这些问题做了系统化改造：
 
-- 用确定性 Python 完成 **A 股候选发现与多因子筛选**，Agent 不直接“拍脑袋选股”；
+- 用确定性 Python 完成 **A 股行业发现与 Style Ranking**，Market Regime 只调整 Momentum / Value / Dividend / Liquidity 权重，不再通过 Top 行业硬门控个股；
 - 用 **Point-in-Time（PIT）数据约束**限制历史时点可见信息，降低未来数据泄漏；
 - 将原始多轮链路裁剪为 **7-Agent 并行 LangGraph**，分析师与 Bull/Bear 两阶段 Fan-Out/Fan-In；
 - 在 Agent 之间引入 **Claim-aware Context Compression**：将证据显式区分为 FACT / CALCULATION / INFERENCE / CONDITIONAL，并按类型与字符预算选择性压缩；
@@ -33,7 +33,7 @@
 | 7-Agent LangGraph | Market / News / Fundamentals → Bull & Bear → Portfolio Manager → Auditor | 减少重复角色与无效多轮辩论 |
 | 并行执行 | Analyst Subgraph + Fan-Out/Fan-In | 降低串行 Agent 延迟 |
 | Claim-aware Context | FACT / CALCULATION / INFERENCE / CONDITIONAL + deterministic budget compression | 减少重复上下文，并防止推断/条件情景被升级为事实 |
-| A 股候选发现 | Market Regime + 行业筛选 + Quant Screen + PIT Quality Screen | 把数值筛选交给确定性算法 |
+| A 股行业发现 | Market Regime + Momentum/Value/Dividend/Liquidity Style Rank + 可选 LightGBM | 避免跨行业用同一套个股财务因子硬排名，并把数值排序交给可审计模型 |
 | PIT 数据治理 | 披露日/发布日期截止过滤 | 降低未来函数与历史穿越 |
 | Decision Auditor | PASS / REVISE 条件路由 | 检查无依据推断和数字冲突 |
 | Finance MCP | Streamable HTTP + Local fallback + allowlist | 解耦 Agent 与金融数据工具 |
@@ -48,14 +48,16 @@
 
 ```mermaid
 flowchart TD
-    A[A 股候选池] --> B[确定性候选发现]
+    A[A 股市场] --> B[Sector-first Discovery]
     B --> B1[Market Regime]
-    B --> B2[行业筛选]
-    B --> B3[Quant Screening]
-    B --> B4[PIT Quality Screen]
-    B --> C[Top-N Research Shortlist]
+    B --> B2[Momentum Style]
+    B --> B3[Value / Dividend Style]
+    B --> B4[Liquidity Style]
+    B --> B5[Optional LightGBM Ranker]
+    B --> C[Top-K Sector Research Shortlist]
+    C --> C1[选择代表性股票]
 
-    C --> D{LangGraph Research}
+    C1 --> D{LangGraph Research}
     D --> M[Market Analyst]
     D --> N[News & Sentiment Analyst]
     D --> F[Fundamentals Analyst]
@@ -88,7 +90,7 @@ flowchart TD
 | --- | --- | --- |
 | 研究对象 | 通用单股研究 | A 股数据适配 + 候选发现 |
 | Agent 拓扑 | 多角色、多轮讨论 | 精简为 7-Agent，两阶段并行 |
-| 候选发现 | 不是主要目标 | 确定性 Market / Sector / Quant / Quality Pipeline |
+| 行业发现 | 不是主要目标 | 全量申万一级行业横截面 + Regime-aware Style Rank + 可选 LightGBM；旧股票筛选保留为 legacy 对照 |
 | 历史研究 | 依赖数据源行为 | 显式 PIT 截止规则与日期守卫 |
 | 最终决策 | 研究链路汇总 | 独立 Decision Auditor，可触发修订 |
 | 工具集成 | 本地工具为主 | MCP Server + Client fallback + 外部工具 allowlist |
@@ -127,18 +129,16 @@ cp .env.example .env
 python scripts/check_data_sources.py --ticker 601016
 ```
 
-### 3. A 股候选发现
+### 3. A 股行业发现
 
 ```bash
 python scripts/discover_a_share.py \
   --mode all \
   --date 2026-08-20 \
-  --sectors 4 \
-  --per-sector 35 \
-  --top 10
+  --top 6
 ```
 
-### 4. 候选发现 Agent Demo
+### 4. 行业发现 Agent Demo
 
 ```bash
 python scripts/discovery_agent_demo.py --date 2026-08-20
@@ -191,10 +191,7 @@ curl -X POST http://localhost:8000/discover \
   -H "Content-Type: application/json" \
   -d '{
     "as_of_date": "2026-08-20",
-    "sector_count": 4,
-    "per_sector": 35,
-    "top_n": 10,
-    "strict_pit": true
+    "top_n": 6
   }'
 ```
 
@@ -216,7 +213,7 @@ multi-agent-trading/
 ├── tradingagents/
 │   ├── agents/          # Analysts / Researchers / Manager / Auditor
 │   ├── graph/           # LangGraph、Subgraph、Fan-In/Fan-Out
-│   ├── discovery/       # A 股候选发现、多因子筛选、Coordinator Agent
+│   ├── discovery/       # A 股行业发现、Style Rank、可选 LightGBM、legacy 股票筛选
 │   ├── conversation/    # 多轮会话路由与状态
 │   ├── mcp/             # Finance MCP Server / adapters
 │   ├── rag/             # Qdrant Hybrid RAG
@@ -236,13 +233,7 @@ multi-agent-trading/
 
 ## 验证与可复现性
 
-历史本地构建记录为：
-
-```text
-55 passed, 1 skipped
-```
-
-详见 [V1.4_VALIDATION.md](V1.4_VALIDATION.md)。当前分支进一步增加了 Evaluation / Backtest / import smoke tests，并通过 GitHub Actions 持续验证。
+测试数量会随功能演进变化，因此 README 不再把历史的固定 `passed` 数量当作当前质量指标。详见 [V1.4_VALIDATION.md](V1.4_VALIDATION.md) 与 GitHub Actions；当前 CI 持续验证 Python 3.11/3.12、依赖一致性、Compile、Import Smoke、Pytest 与 Docker Build。
 
 CI 在 Push / Pull Request 上执行：
 
@@ -255,7 +246,35 @@ docker build .
 
 > 离线单元/回归测试通过，不等价于所有第三方在线服务已完成生产验证。真实 LLM、外部 MCP 与实时数据源仍依赖本地凭据与网络环境。
 
+## Sector-first Discovery V2
+
+默认 Discovery 不再输出“全市场最好的 Top10 股票”，而是输出 **Top-K 行业研究优先级**。行业评分拆为四个可解释 Style：
+
+- **Momentum**：1/20/60 日相对动量；
+- **Value**：PE/PB 横截面便宜度；
+- **Dividend**：行业股息率横截面排名；
+- **Liquidity**：换手率 + 成交额占比。
+
+Market Regime 只调整 Style 权重，不再决定哪些行业/股票有资格参加后续筛选。这样科技成长板块可以依靠 Momentum 获胜，高股息板块可以依靠 Dividend 获胜，避免“所有股票参加同一套财务考试”。
+
+可选安装 LightGBM：
+
+```bash
+pip install -e ".[quant]"
+python scripts/discover_a_share.py --mode all --date 2026-09-05 --top 6 --ml-model ./models/sector_ranker.txt --ml-weight 0.5
+```
+
+仓库**不内置宣称有效的预训练量化模型**。ML 模型需要使用时间切分 / Walk-forward 验证后自行提供；推理时模型分数会先转成同日横截面百分位，再与 Rule Score 融合。旧版股票筛选保留为：
+
+```bash
+python scripts/discover_a_share.py --mode legacy-stock --date 2026-09-05 --top 10
+```
+
 ## 关键工程设计
+
+### 为什么 Discovery 改成行业优先
+
+旧版 `Top Sector → Stock Quant → Quality → Top10` 容易产生 Sector-first hard gating：行业在前面被淘汰后，再优秀的成长股、高股息股也没有机会进入后续研究；同时 Sector Score 又在个股评分里重复使用，形成双重行业偏置。V2 把行业本身定义为 Discovery 的主输出，个股回到“代表性研究入口”角色。
 
 ### 为什么“筛选”不用 LLM
 
@@ -327,13 +346,14 @@ publish_date <= as_of_date
 
 - 公开仓库不包含 `.env`、API Key 或 LangSmith Key。
 - 默认 A 股数据链路以 BaoStock、AKShare、巨潮资讯为主；Alpha Vantage 与 FRED 仅保留为可选扩展。
-- 历史选股仍可能受到历史成分数据完整性、停牌/退市样本和幸存者偏差影响。
-- 候选发现结果是 Research Shortlist，不是收益承诺。
+- 默认行业发现不依赖当前股票成分股恢复；旧版 legacy-stock 模式仍可能受到历史成分数据完整性和幸存者偏差影响。
+- 行业发现结果是 Sector Research Shortlist，不是个股买入清单或收益承诺。
 - 本项目不执行自动下单，不提供真实资金交易接口。
 
 ## 文档
 
-- [PROJECT_WALKTHROUGH.md](docs/PROJECT_WALKTHROUGH.md)：从一次真实请求出发梳理候选发现、7-Agent、PIT、MCP/RAG、评测与服务化执行链路
+- [SECTOR_DISCOVERY.md](docs/SECTOR_DISCOVERY.md)：Sector-first Style Rank、Regime 权重、可选 LightGBM 与 legacy 对照
+- [PROJECT_WALKTHROUGH.md](docs/PROJECT_WALKTHROUGH.md)：从一次真实请求出发梳理行业发现、7-Agent、PIT、MCP/RAG、评测与服务化执行链路
 - [ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)：设计取舍、代码所有权边界、面向工程评审的实现说明
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
 - [MCP_RAG_DOCKER_GUIDE.md](MCP_RAG_DOCKER_GUIDE.md)：MCP、Qdrant Hybrid RAG、Docker

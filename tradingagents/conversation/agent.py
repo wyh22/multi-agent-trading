@@ -218,20 +218,45 @@ class ConversationAgent:
                     metadata={"signal": signal, "audit_status": state.get("audit_status", "")},
                 )
         elif route.intent == "discovery":
-            result = run_discovery(cutoff, top_n=10, strict_pit=True)
-            rows = result.stocks.candidates.head(10).to_dict(orient="records")
+            top_n = int(self.config.get("sector_discovery_top_n", 6))
+            result = run_discovery(
+                cutoff,
+                top_n=top_n,
+                ml_model_path=self.config.get("sector_ml_model_path") or None,
+                ml_weight=float(self.config.get("sector_ml_weight", 0.5)),
+            )
+            rows = result.sectors.sectors.head(top_n).to_dict(orient="records")
             lines = [
                 f"截至{cutoff}，市场状态为{result.market.regime}（{result.market.score:.1f}/100）。",
-                "候选Top10：",
+                (
+                    "行业研究优先级 Top"
+                    f"{len(rows)}（{result.metadata.get('rank_source', 'rule')}）："
+                ),
             ]
             for idx, row in enumerate(rows, start=1):
-                code = row.get("ticker") or row.get("code") or row.get("symbol") or ""
-                name = row.get("name") or row.get("stock_name") or ""
-                score = row.get("final_score") or row.get("score") or row.get("quant_score")
-                score_text = f"，综合分{float(score):.2f}" if isinstance(score, (int, float)) else ""
-                lines.append(f"{idx}. {code} {name}{score_text}".strip())
+                code = str(row.get("sector_code") or "")
+                name = str(row.get("sector_name") or "")
+                style = str(row.get("style_profile") or row.get("primary_style") or "")
+                score = row.get("sector_score")
+                score_text = (
+                    f"，综合分{float(score):.2f}"
+                    if isinstance(score, (int, float))
+                    else ""
+                )
+                style_text = f"，Style={style}" if style else ""
+                lines.append(
+                    f"{idx}. {code} {name}{score_text}{style_text}".strip()
+                )
+            lines.append(
+                "这些是行业研究优先级，不是个股买入清单；"
+                "下一步应从目标行业中选择代表性股票进入7-Agent深度研究。"
+            )
             answer = "\n".join(lines)
-            self.store.update_context(tid, as_of_date=cutoff, last_intent="discovery")
+            self.store.update_context(
+                tid,
+                as_of_date=cutoff,
+                last_intent="discovery",
+            )
         else:
             thread = self.store.get_thread(tid) or {}
             history = self.store.history(tid, limit=int(self.config.get("conversation_history_turns", 12)))

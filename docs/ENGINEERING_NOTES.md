@@ -7,7 +7,7 @@
 上游 TradingAgents 提供了多角色金融研究框架和基础数据流。本仓库重点扩展以下部分：
 
 1. A 股数据适配与标的规范化；
-2. 确定性候选发现 Pipeline；
+2. Sector-first 行业发现 Pipeline + 可选 ML Ranker；
 3. 7-Agent LangGraph 裁剪与并行化；
 4. Point-in-Time 数据约束；
 5. 独立 Decision Auditor；
@@ -21,13 +21,13 @@
 
 ## 2. 设计原则：能确定性计算的，不交给 LLM
 
-股票筛选中最容易被“Agent 化过度”的环节包括排名、阈值、日期、配额和财务指标计算。这些任务并不需要自然语言推理。
+横截面行业排序中最容易被“Agent 化过度”的环节包括因子计算、日期、百分位排名和权重融合。这些任务并不需要自然语言推理。旧版股票筛选保留为 legacy 对照，但不再作为默认 Discovery 主链。
 
 因此本项目的职责划分是：
 
 | 任务 | 执行者 |
 | --- | --- |
-| 因子计算、排序、行业配额 | Python |
+| 行业 Style 因子、横截面排序、Regime 权重 | Python / optional LightGBM |
 | PIT 日期检查 | Python |
 | 数据源调用与校验 | Tool / MCP |
 | 新闻、基本面语义解释 | Analyst Agent |
@@ -37,7 +37,31 @@
 
 这样做的核心收益不是“更智能”，而是更容易测试、更容易复现。
 
-## 3. 为什么重构 Agent 拓扑
+## 3. 为什么改为 Sector-first Discovery
+
+旧版流程先取 Top 行业，再只在这些行业中做股票多因子和财务质量筛选。实际运行后暴露出两个结构问题：
+
+- **Hard Gate**：未进入 Top 行业的股票在个股评分前就被删除，成长股、高股息股等可能因为行业排序失去研究机会；
+- **双重行业暴露**：Sector Score 既决定股票是否进入候选池，又再次进入个股 Final Score。
+
+V2 将 Discovery 的主问题重新定义为“哪些申万一级行业值得优先研究”，所有行业先进入同一横截面，再分别计算 Momentum / Value / Dividend / Liquidity 四类 Style Score。Market Regime 只调整 Style 权重，不再决定行业资格。
+
+默认输出：
+
+```text
+Market Regime
+  -> SW L1 full cross-section
+  -> Style Scores
+  -> Regime-aware Rule Rank
+  -> Optional LightGBM Ranker
+  -> Top-K Sector Research Shortlist
+```
+
+LightGBM 只是可插拔二阶段 Ranker，Rule Score 永远保留用于解释和 fallback；仓库不内置未经 Walk-forward 验证却宣称有效的预训练模型。旧股票筛选通过 `run_stock_discovery_legacy` 保留用于 A/B 对比。
+
+详细设计见 `docs/SECTOR_DISCOVERY.md`。
+
+## 4. 为什么重构 Agent 拓扑
 
 原始多角色链路存在大量相近上下文的重复读取与自然语言复述。随着中间报告增多，Token 和延迟都会累积，同时错误事实也可能在角色之间继续传播。
 
@@ -65,7 +89,7 @@ Fund. ──┘                   └─> Bear ─┼─> Portfolio Manager ─>
 - `tradingagents/graph/analyst_subgraph.py`
 - `tradingagents/agents/auditors/decision_auditor.py`
 
-## 4. Point-in-Time：历史研究最重要的数据约束
+## 5. Point-in-Time：历史研究最重要的数据约束
 
 历史研究不能使用“今天已经知道、但当时尚未披露”的信息。
 
@@ -79,7 +103,7 @@ Fund. ──┘                   └─> Bear ─┼─> Portfolio Manager ─>
 
 这是本项目比“让多个 Agent 讨论股票”更重要的工程点之一。
 
-## 5. Hybrid RAG 的检索路径
+## 6. Hybrid RAG 的检索路径
 
 当前 RAG 采用：
 
@@ -101,7 +125,7 @@ Top-K evidence
 
 这里选择 Hybrid Retrieval 的原因是：金融文档同时包含自然语言语义和大量股票代码、指标名、公告术语。仅向量检索容易弱化精确关键词，仅 BM25 又缺乏语义召回。
 
-## 6. MCP 的作用不是“为了用 MCP”
+## 7. MCP 的作用不是“为了用 MCP”
 
 Finance MCP 的主要价值是把金融工具从 Agent 运行时解耦出来：
 
@@ -116,7 +140,7 @@ Finance MCP 的主要价值是把金融工具从 Agent 运行时解耦出来：
 - `tradingagents/mcp/client.py`
 - `tradingagents/agents/utils/tool_registry.py`
 
-## 7. 为什么增加独立 Decision Auditor
+## 8. 为什么增加独立 Decision Auditor
 
 如果 Portfolio Manager 同时负责生成和验证最终结论，本质上仍然是“自己检查自己”。
 
@@ -130,7 +154,7 @@ Auditor 的提示词明确限制：
 
 这种设计不能消灭 LLM 错误，但能把“结论生成”和“结论校验”拆成两个职责。
 
-## 8. 多轮会话为什么复用已审计上下文
+## 9. 多轮会话为什么复用已审计上下文
 
 普通追问不应该每次都重新运行完整研究图。
 
@@ -151,7 +175,7 @@ Router 决定用户请求属于：
 
 对于普通追问，优先复用上一轮已审计结果，避免重复成本和上下文漂移。
 
-## 9. 可复现性
+## 10. 可复现性
 
 仓库提供三层运行方式：
 
@@ -168,14 +192,9 @@ pytest -q
 
 并额外执行 Docker image build，防止 Dockerfile 与仓库目录结构漂移。
 
-## 10. 当前验证边界
+## 11. 当前验证边界
 
-目前离线回归记录为：
-
-```text
-55 passed, 1 skipped
-```
-
+离线回归测试数量会随功能增加而变化，因此不再把历史固定的 `55 passed, 1 skipped` 当作当前状态。当前状态以 GitHub Actions 的 Python 3.11/3.12、Compile、Import Smoke、Pytest 与 Docker Build 为准。
 
 仍需要外部环境才能完整验证的部分：
 
@@ -186,21 +205,21 @@ pytest -q
 
 因此 README 中没有把单元测试结果包装成“生产可用”结论。
 
-## 11. 代码评审时建议重点阅读
+## 12. 代码评审时建议重点阅读
 
 如果只阅读 15 分钟，建议按以下顺序：
 
 1. `tradingagents/graph/setup.py`：理解 7-Agent 主拓扑；
 2. `tradingagents/graph/analyst_subgraph.py`：理解私有 Analyst Subgraph；
-3. `tradingagents/discovery/pipeline.py`：理解确定性候选发现；
-4. `tradingagents/discovery/quality.py`：理解 PIT Quality Screen；
+3. `tradingagents/discovery/pipeline.py`：理解 Sector-first Discovery；
+4. `tradingagents/discovery/sectors.py` / `sector_ranker.py`：理解 Style Rank 与可选 LightGBM；
 5. `tradingagents/agents/auditors/decision_auditor.py`：理解独立审计；
 6. `tradingagents/rag/retriever.py`：理解 Hybrid + PIT；
 7. `tradingagents/mcp/server.py`：理解工具协议层；
 8. `tradingagents/conversation/agent.py`：理解会话路由；
 9. `service/app.py`：理解服务接口。
 
-## 12. Claim-aware Context Compression
+## 13. Claim-aware Context Compression
 
 旧实现只按字符预算保留报告头尾，虽然能限制上下文长度，但无法区分“直接证据”和“模型解释”。当前实现增加显式 Claim 层：
 
@@ -227,7 +246,7 @@ Bull / Bear → Portfolio Manager → Auditor
 
 压缩优先级不是“置信度评分”。FACT / CALCULATION 获得更高预算优先级是因为它们构成 Grounding 层；INFERENCE 仍可保留，但不得被下游重述为事实；CONDITIONAL 必须保留原始触发条件。若旧报告没有显式标签，则使用保守的确定性规则兜底，因此该能力不会为了压缩再新增一次 LLM 调用。
 
-## 13. 下一阶段可以继续量化的指标
+## 14. 下一阶段可以继续量化的指标
 
 后续最值得补的不是继续增加 Agent 数量，而是把工程收益量化：
 

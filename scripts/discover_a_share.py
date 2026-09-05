@@ -1,7 +1,10 @@
-"""A 股大盘、行业与自动研究候选发现入口。"""
+"""A 股市场环境与行业研究优先级发现入口。"""
 
 from __future__ import annotations
-import argparse, os, sys
+
+import argparse
+import os
+import sys
 from datetime import date, datetime
 from pathlib import Path
 
@@ -13,7 +16,11 @@ sys.path.insert(0, root_str)
 os.environ.setdefault("TQDM_DISABLE", "1")
 
 from tradingagents.discovery.market import analyze_market_regime
-from tradingagents.discovery.pipeline import run_discovery, write_discovery_report
+from tradingagents.discovery.pipeline import (
+    run_discovery,
+    run_stock_discovery_legacy,
+    write_discovery_report,
+)
 from tradingagents.discovery.sectors import analyze_sectors
 
 
@@ -21,40 +28,17 @@ def _print_frame(df, n=20):
     if df is None or df.empty:
         print("（无数据）")
         return
-    with __import__("pandas").option_context("display.max_columns", None, "display.width", 180):
+    with __import__("pandas").option_context(
+        "display.max_columns",
+        None,
+        "display.width",
+        220,
+    ):
         print(df.head(n).to_string(index=False))
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="A股大盘/行业/自动研究候选发现（不调用 LLM）")
-    parser.add_argument("--mode", choices=["market", "sectors", "all"], default="all")
-    parser.add_argument("--date", default=date.today().isoformat())
-    parser.add_argument("--top", type=int, default=10)
-    parser.add_argument("--sectors", type=int, default=4)
-    parser.add_argument("--per-sector", type=int, default=35)
-    parser.add_argument("--max-sector-picks", type=int, default=0)
-    parser.add_argument("--quality-pool", type=int, default=0)
-    parser.add_argument("--quality-weight", type=float, default=0.25)
-    parser.add_argument("--skip-quality", action="store_true")
-    parser.add_argument("--allow-historical-membership", action="store_true")
-    parser.add_argument("--output", default=None)
-    args = parser.parse_args()
-
-    if args.mode == "market":
-        result = analyze_market_regime(args.date)
-        print(f"市场环境: {result.regime} | 综合分={result.score:.1f}/100")
-        print(result.summary)
-        _print_frame(result.indices, args.top)
-        return 0
-
-    market = analyze_market_regime(args.date)
-    if args.mode == "sectors":
-        sectors = analyze_sectors(args.date, market_regime=market.regime, top_n=args.top)
-        print(f"市场环境: {market.regime} | 综合分={market.score:.1f}/100")
-        _print_frame(sectors.sectors, args.top)
-        return 0
-
-    result = run_discovery(
+def _legacy_stock_mode(args) -> int:
+    result = run_stock_discovery_legacy(
         args.date,
         sector_count=args.sectors,
         per_sector=args.per_sector,
@@ -65,22 +49,161 @@ def main() -> int:
         quality_enabled=not args.skip_quality,
         strict_pit=not args.allow_historical_membership,
     )
-    print(f"Market Regime: {result.market.regime} | score={result.market.score:.1f}/100")
-    print("排名靠前的行业：")
-    _print_frame(result.sectors.sectors, args.sectors)
-    print("\n研究候选清单：")
+    print(
+        f"[LEGACY] Market Regime: {result.market.regime} | "
+        f"score={result.market.score:.1f}/100"
+    )
+    print("旧版股票 Research Shortlist：")
     if result.stocks.sector_quotas:
-        print("行业分布（软上限）：", ", ".join(f"{k}:{v}" for k, v in result.stocks.sector_quotas.items()))
-    print(f"基本面二筛：候选池={result.stocks.quality_pool_size}，有效财务={result.stocks.quality_scored_size}")
+        print(
+            "行业分布（软上限）：",
+            ", ".join(
+                f"{key}:{value}"
+                for key, value in result.stocks.sector_quotas.items()
+            ),
+        )
+    print(
+        "基本面二筛："
+        f"候选池={result.stocks.quality_pool_size}，"
+        f"有效财务={result.stocks.quality_scored_size}"
+    )
     _print_frame(result.stocks.candidates, args.top)
+    print(
+        "\n提示：legacy-stock 仅用于与旧版 Sector-first hard gate "
+        "股票筛选进行对比；默认主链已经切换为行业发现。"
+    )
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "A股大盘/行业研究优先级发现。默认不调用 LLM；"
+            "可选 LightGBM Sector Ranker。"
+        )
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["market", "sectors", "all", "legacy-stock"],
+        default="all",
+    )
+    parser.add_argument("--date", default=date.today().isoformat())
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=6,
+        help="行业发现模式下输出 Top-K 行业；legacy-stock 下表示股票 Top-N。",
+    )
+    parser.add_argument(
+        "--ml-model",
+        default=None,
+        help="可选 LightGBM Booster 模型路径；未提供时使用确定性 Rule Rank。",
+    )
+    parser.add_argument(
+        "--ml-weight",
+        type=float,
+        default=0.5,
+        help="ML percentile score 与 Rule Score 的融合权重，范围 0~1。",
+    )
+    parser.add_argument("--output", default=None)
+
+    # Legacy stock-screen arguments are intentionally kept so previous commands
+    # still work when the caller explicitly chooses --mode legacy-stock.
+    parser.add_argument("--sectors", type=int, default=4, help=argparse.SUPPRESS)
+    parser.add_argument("--per-sector", type=int, default=35, help=argparse.SUPPRESS)
+    parser.add_argument("--max-sector-picks", type=int, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--quality-pool", type=int, default=0, help=argparse.SUPPRESS)
+    parser.add_argument("--quality-weight", type=float, default=0.25, help=argparse.SUPPRESS)
+    parser.add_argument("--skip-quality", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--allow-historical-membership",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+
+    args = parser.parse_args()
+
+    if args.mode == "market":
+        result = analyze_market_regime(args.date)
+        print(f"市场环境: {result.regime} | 综合分={result.score:.1f}/100")
+        print(result.summary)
+        _print_frame(result.indices, args.top)
+        return 0
+
+    if args.mode == "sectors":
+        market = analyze_market_regime(args.date)
+        sectors = analyze_sectors(
+            args.date,
+            market_regime=market.regime,
+            top_n=args.top,
+        )
+        print(f"市场环境: {market.regime} | 综合分={market.score:.1f}/100")
+        _print_frame(sectors.sectors, args.top)
+        return 0
+
+    if args.mode == "legacy-stock":
+        return _legacy_stock_mode(args)
+
+    result = run_discovery(
+        args.date,
+        top_n=args.top,
+        ml_model_path=args.ml_model,
+        ml_weight=args.ml_weight,
+    )
+    print(
+        f"Market Regime: {result.market.regime} | "
+        f"score={result.market.score:.1f}/100"
+    )
+    print(
+        "Style 权重：",
+        ", ".join(
+            f"{key}={float(value):.0%}"
+            for key, value in result.metadata.get("style_weights", {}).items()
+        ),
+    )
+    print(
+        f"排名来源: {result.metadata.get('rank_source', 'rule')} | "
+        f"行业横截面={result.metadata.get('sector_universe_size', len(result.sector_universe))}"
+    )
+    print("\nSector Research Shortlist：")
+    shown_cols = [
+        "sector_code",
+        "sector_name",
+        "ret_20d",
+        "ret_60d",
+        "dividend_yield",
+        "momentum_score",
+        "valuation_score",
+        "dividend_score",
+        "liquidity_score",
+        "primary_style",
+        "style_profile",
+        "rule_score",
+        "ml_score",
+        "sector_score",
+    ]
+    shown_cols = [
+        column
+        for column in shown_cols
+        if column in result.sectors.sectors.columns
+    ]
+    _print_frame(result.sectors.sectors[shown_cols], args.top)
 
     if args.output:
         out = Path(args.output)
     else:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out = PROJECT_ROOT / "reports" / f"discovery_{args.date.replace('-', '')}_{stamp}"
+        out = (
+            PROJECT_ROOT
+            / "reports"
+            / f"sector_discovery_{args.date.replace('-', '')}_{stamp}"
+        )
     report = write_discovery_report(result, out)
     print(f"\n已保存：{report}")
+    print(
+        "下一步：从 Top 行业中选代表性股票，再运行 "
+        "python -m cli.main analyze 做 7-Agent 单股研究。"
+    )
     return 0
 
 

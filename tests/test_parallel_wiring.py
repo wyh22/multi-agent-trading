@@ -98,3 +98,52 @@ def test_report_writer_uses_current_state_fields():
         assert current in source
     for removed in ["investment_debate_state", "risk_debate_state", "trader_investment_plan"]:
         assert removed not in source
+
+
+def test_analyst_factories_accept_injected_tool_groups():
+    setup_source = _read("tradingagents/graph/setup.py")
+    specs = {
+        "market": "tradingagents/agents/analysts/market_analyst.py",
+        "news": "tradingagents/agents/analysts/news_analyst.py",
+        "fundamentals": "tradingagents/agents/analysts/fundamentals_analyst.py",
+    }
+    for key, path in specs.items():
+        source = _read(path)
+        factory = {
+            "market": "create_market_analyst",
+            "news": "create_news_analyst",
+            "fundamentals": "create_fundamentals_analyst",
+        }[key]
+        assert f"def {factory}(llm, tools=None):" in source
+        assert "active_tools = tools or [" in source
+        assert "llm.bind_tools(active_tools)" in source
+        assert f'self.tool_groups.get("{key}")' in setup_source
+
+
+def test_graph_setup_builds_with_injected_local_tool_groups():
+    from langgraph.prebuilt import ToolNode
+
+    from tradingagents.agents.utils.tool_registry import build_local_tool_groups
+    from tradingagents.graph.conditional_logic import ConditionalLogic
+    from tradingagents.graph.setup import GraphSetup
+
+    class FakeLLM:
+        # Portfolio Manager / Auditor detect this as unsupported structured output
+        # during graph construction and fall back without making any LLM call.
+        def with_structured_output(self, _schema):
+            raise NotImplementedError
+
+    groups = build_local_tool_groups({"rag_enabled": False})
+    tool_nodes = {key: ToolNode(value) for key, value in groups.items()}
+    workflow = GraphSetup(
+        FakeLLM(),
+        FakeLLM(),
+        tool_nodes,
+        ConditionalLogic(max_audit_rounds=2),
+        tool_groups=groups,
+    ).setup_graph(("market", "news", "fundamentals"))
+
+    # This is intentionally a real graph-construction smoke test.  It catches
+    # factory signature drift that compile/import-only CI cannot detect.
+    compiled = workflow.compile()
+    assert compiled is not None

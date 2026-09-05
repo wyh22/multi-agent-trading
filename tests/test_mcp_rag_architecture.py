@@ -23,3 +23,11 @@ def test_docker_compose_contains_agent_mcp_qdrant_services():
     assert "qdrant:" in compose
     assert "TRADINGAGENTS_MCP_ENABLED" in compose
     assert "TRADINGAGENTS_RAG_ENABLED" in compose
+
+
+def test_news_analyst_prompt_knows_optional_injected_rag_tools():
+    source=_read("tradingagents/agents/analysts/news_analyst.py")
+    assert "active_tool_names" in source
+    assert '"search_company_knowledge" in active_tool_names' in source
+    assert '"get_insider_transactions" in active_tool_names' in source
+    assert "llm.bind_tools(active_tools)" in source

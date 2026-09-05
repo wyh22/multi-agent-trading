@@ -27,7 +27,25 @@ class SectorRankingResult:
 
 
 @dataclass
+class SectorDiscoveryResult:
+    """Primary discovery output: rank sectors, not individual stocks.
+
+    `sectors` is the Top-K research shortlist. `sector_universe` keeps the
+    complete cross-sectional ranking for audit, comparison and optional model
+    analysis.
+    """
+
+    as_of_date: str
+    market: MarketRegimeResult
+    sectors: SectorRankingResult
+    sector_universe: pd.DataFrame
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class StockScreenResult:
+    """Legacy stock-screen result retained for backwards-compatible experiments."""
+
     as_of_date: str
     regime: str
     candidates: pd.DataFrame
@@ -41,6 +59,11 @@ class StockScreenResult:
 
 @dataclass
 class DiscoveryResult:
+    """Legacy sector-first-then-stock discovery result.
+
+    New application code should prefer :class:`SectorDiscoveryResult`.
+    """
+
     as_of_date: str
     market: MarketRegimeResult
     sectors: SectorRankingResult
