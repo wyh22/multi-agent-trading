@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tradingagents"
-version = "1.4.0"
+version = "1.5.0"
 description = "基于 TradingAgents 二次开发的 A 股多智能体智能投研与候选发现系统"
 readme = "README.md"
 requires-python = ">=3.11"
