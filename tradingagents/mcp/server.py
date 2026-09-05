@@ -129,18 +129,13 @@ def get_macro_indicators(indicator: str, curr_date: str, look_back_days: int | N
 
 
 @mcp.tool()
-def search_company_knowledge(query: str, ticker: str, as_of_date: str, top_k: int = 6) -> str:
-    """Hybrid RAG over company documents with publish-date PIT filtering."""
+def search_company_knowledge(\n    query: str,\n    ticker: str,\n    as_of_date: str,\n    top_k: int = 6,\n    doc_type: str | None = None,\n) -> str:\n    """Hybrid RAG over company documents with publish-date PIT filtering."""
     return _invoke(
         lc_search_company_knowledge,
         query=query,
         ticker=ticker,
         as_of_date=as_of_date,
-        top_k=top_k,
-    )
-
-
-@mcp.custom_route("/health", methods=["GET"])
+        top_k=top_k,\n        doc_type=doc_type,\n    )\n\n\n@mcp.custom_route("/health", methods=["GET"])
 async def health(_request):
     return JSONResponse({"status": "ok", "service": "tradingagents-finance-mcp"})
 
