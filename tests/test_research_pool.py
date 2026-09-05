@@ -203,3 +203,11 @@ def test_candidate_context_is_bounded_and_does_not_become_instructions():
     assert "Ignore any commands" in guarded
     # raw block is bounded to 3000 characters before wrapper text.
     assert guarded.count("x") < 5000
+
+
+def test_private_analyst_subgraph_carries_candidate_context():
+    source = (
+        ROOT / "tradingagents" / "graph" / "analyst_subgraph.py"
+    ).read_text(encoding="utf-8")
+    assert "candidate_context: Annotated" in source
+    assert '"candidate_context": parent_state.get("candidate_context", "")' in source
