@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from tradingagents.agents.utils.tool_registry import build_tool_groups
 from tradingagents.conversation.router import route_message
 from tradingagents.conversation.store import ConversationStore
-from tradingagents.discovery.pipeline import run_discovery
+from tradingagents.discovery.pipeline import run_discovery, run_research_pool
 from tradingagents.graph.trading_graph import TradingAgentsGraph, _coerce_max_retries
 from tradingagents.llm_clients import create_llm_client
 
@@ -82,6 +82,20 @@ class ConversationAgent:
                     import logging
                     logging.getLogger(__name__).warning("外部MCP工具加载失败，将继续使用核心工具: %s", exc)
         return merged
+
+    @staticmethod
+    def _wants_representatives(message: str) -> bool:
+        normalized = (message or "").lower()
+        keywords = (
+            "代表股",
+            "代表性股票",
+            "候选股",
+            "研究池",
+            "研究标的",
+            "每个行业",
+            "每个板块",
+        )
+        return any(word in normalized for word in keywords)
 
     @staticmethod
     def _system_prompt(*, ticker: str | None, as_of_date: str, research_context: str) -> str:
@@ -203,7 +217,22 @@ class ConversationAgent:
                 answer = "要运行完整多Agent研究，请提供6位A股代码（例如600519.SH），或在请求的ticker字段中指定标的。"
             else:
                 graph = TradingAgentsGraph(config=self.config)
-                state, signal = graph.propagate(resolved_ticker, cutoff)
+                metadata = (
+                    thread.get("metadata", {})
+                    if isinstance(thread.get("metadata"), dict)
+                    else {}
+                )
+                context_map = metadata.get("representative_contexts", {})
+                candidate_context = (
+                    str(context_map.get(resolved_ticker, "") or "")
+                    if isinstance(context_map, dict)
+                    else ""
+                )
+                state, signal = graph.propagate(
+                    resolved_ticker,
+                    cutoff,
+                    candidate_context=candidate_context,
+                )
                 research_context = self._research_context(state)
                 answer = str(state.get("final_trade_decision", "") or "")
                 audit = str(state.get("audit_report", "") or "")
@@ -219,44 +248,102 @@ class ConversationAgent:
                 )
         elif route.intent == "discovery":
             top_n = int(self.config.get("sector_discovery_top_n", 6))
-            result = run_discovery(
-                cutoff,
-                top_n=top_n,
-                ml_model_path=self.config.get("sector_ml_model_path") or None,
-                ml_weight=float(self.config.get("sector_ml_weight", 0.5)),
-            )
-            rows = result.sectors.sectors.head(top_n).to_dict(orient="records")
-            lines = [
-                f"截至{cutoff}，市场状态为{result.market.regime}（{result.market.score:.1f}/100）。",
-                (
-                    "行业研究优先级 Top"
-                    f"{len(rows)}（{result.metadata.get('rank_source', 'rule')}）："
-                ),
-            ]
-            for idx, row in enumerate(rows, start=1):
-                code = str(row.get("sector_code") or "")
-                name = str(row.get("sector_name") or "")
-                style = str(row.get("style_profile") or row.get("primary_style") or "")
-                score = row.get("sector_score")
-                score_text = (
-                    f"，综合分{float(score):.2f}"
-                    if isinstance(score, (int, float))
-                    else ""
+            wants_representatives = self._wants_representatives(message)
+            if wants_representatives:
+                pool = run_research_pool(
+                    cutoff,
+                    sector_top_n=min(top_n, 6),
+                    representatives_per_sector=int(
+                        self.config.get("representatives_per_sector", 2)
+                    ),
+                    component_limit=int(
+                        self.config.get("representative_component_limit", 20)
+                    ),
+                    strict_pit=True,
+                    ml_model_path=self.config.get("sector_ml_model_path") or None,
+                    ml_weight=float(self.config.get("sector_ml_weight", 0.5)),
                 )
-                style_text = f"，Style={style}" if style else ""
+                result = pool.discovery
+                rows = result.sectors.sectors.to_dict(orient="records")
+                reps = pool.representatives.representatives.to_dict(orient="records")
+                lines = [
+                    f"截至{cutoff}，市场状态为{result.market.regime}（{result.market.score:.1f}/100）。",
+                    "行业研究优先级：",
+                ]
+                for idx, row in enumerate(rows, start=1):
+                    lines.append(
+                        f"{idx}. {row.get('sector_code','')} {row.get('sector_name','')}，"
+                        f"Style={row.get('style_profile') or row.get('primary_style') or 'N/A'}，"
+                        f"行业分={float(row.get('sector_score', 0.0)):.2f}"
+                    )
+                    sector_reps = [
+                        item for item in reps
+                        if str(item.get("sector_code")) == str(row.get("sector_code"))
+                    ]
+                    for rep in sector_reps:
+                        lines.append(
+                            f"   - {rep.get('ticker','')} {rep.get('name','')}："
+                            f"代表性分={float(rep.get('representative_score', 0.0)):.2f}，"
+                            f"{rep.get('selection_reason','')}"
+                        )
                 lines.append(
-                    f"{idx}. {code} {name}{score_text}{style_text}".strip()
+                    "代表股只用于分配7-Agent研究预算，不是买入推荐；"
+                    "后续对其中某个代码发起深度研究时，会自动携带其研究来源，"
+                    "但Agent必须重新用工具验证，不能把该来源当作投资证据。"
                 )
-            lines.append(
-                "这些是行业研究优先级，不是个股买入清单；"
-                "下一步应从目标行业中选择代表性股票进入7-Agent深度研究。"
-            )
-            answer = "\n".join(lines)
-            self.store.update_context(
-                tid,
-                as_of_date=cutoff,
-                last_intent="discovery",
-            )
+                answer = "\n".join(lines)
+                context_map = {
+                    str(item.get("ticker")): str(item.get("research_context") or "")
+                    for item in reps
+                    if item.get("ticker")
+                }
+                self.store.update_context(
+                    tid,
+                    as_of_date=cutoff,
+                    last_intent="discovery",
+                    metadata={"representative_contexts": context_map},
+                )
+            else:
+                result = run_discovery(
+                    cutoff,
+                    top_n=top_n,
+                    ml_model_path=self.config.get("sector_ml_model_path") or None,
+                    ml_weight=float(self.config.get("sector_ml_weight", 0.5)),
+                )
+                rows = result.sectors.sectors.head(top_n).to_dict(orient="records")
+                lines = [
+                    f"截至{cutoff}，市场状态为{result.market.regime}（{result.market.score:.1f}/100）。",
+                    (
+                        "行业研究优先级 Top"
+                        f"{len(rows)}（{result.metadata.get('rank_source', 'rule')}）："
+                    ),
+                ]
+                for idx, row in enumerate(rows, start=1):
+                    code = str(row.get("sector_code") or "")
+                    name = str(row.get("sector_name") or "")
+                    style = str(
+                        row.get("style_profile") or row.get("primary_style") or ""
+                    )
+                    score = row.get("sector_score")
+                    score_text = (
+                        f"，综合分{float(score):.2f}"
+                        if isinstance(score, (int, float))
+                        else ""
+                    )
+                    style_text = f"，Style={style}" if style else ""
+                    lines.append(
+                        f"{idx}. {code} {name}{score_text}{style_text}".strip()
+                    )
+                lines.append(
+                    "这些是行业研究优先级，不是个股买入清单；"
+                    "如需具体研究入口，可继续说“给我每个行业的代表股”。"
+                )
+                answer = "\n".join(lines)
+                self.store.update_context(
+                    tid,
+                    as_of_date=cutoff,
+                    last_intent="discovery",
+                )
         else:
             thread = self.store.get_thread(tid) or {}
             history = self.store.history(tid, limit=int(self.config.get("conversation_history_turns", 12)))
