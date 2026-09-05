@@ -11,9 +11,11 @@ from .market import analyze_market_regime
 from .models import (
     DiscoveryResult,
     MarketRegimeResult,
+    ResearchPoolResult,
     SectorDiscoveryResult,
     SectorRankingResult,
 )
+from .representatives import select_representative_stocks
 from .screener import load_sector_components, screen_stocks
 from .sector_ranker import LightGBMSectorRanker, SectorRanker, blend_sector_scores
 from .sectors import analyze_sectors, sector_style_weights
@@ -119,6 +121,152 @@ def run_discovery(
             ),
         },
     )
+
+
+
+
+def run_research_pool(
+    as_of_date: str,
+    *,
+    sector_top_n: int = 4,
+    representatives_per_sector: int = 2,
+    component_limit: int = 20,
+    strict_pit: bool = True,
+    ml_model_path: str | None = None,
+    ml_weight: float = 0.5,
+    ranker: SectorRanker | None = None,
+    representative_selector=select_representative_stocks,
+) -> ResearchPoolResult:
+    """Bridge sector discovery to concrete single-stock research entry points.
+
+    The representative layer is deliberately *not* an investment-quality model:
+    it selects liquid, index-representative and data-complete names within each
+    already-selected sector.  In strict PIT mode, recent/current component
+    membership is required because the public SW component interface cannot
+    reconstruct historical exits reliably.
+    """
+
+    if sector_top_n <= 0:
+        raise ValueError("sector_top_n 必须大于 0")
+    if representatives_per_sector <= 0:
+        raise ValueError("representatives_per_sector 必须大于 0")
+
+    discovery = run_discovery(
+        as_of_date,
+        top_n=sector_top_n,
+        ml_model_path=ml_model_path,
+        ml_weight=ml_weight,
+        ranker=ranker,
+    )
+    _validate_stock_discovery_date(as_of_date, strict_pit)
+    reps = representative_selector(
+        discovery.sectors.sectors,
+        as_of_date,
+        representatives_per_sector=representatives_per_sector,
+        component_limit=component_limit,
+    )
+    return ResearchPoolResult(
+        as_of_date=as_of_date,
+        discovery=discovery,
+        representatives=reps,
+        metadata={
+            "sector_top_n": len(discovery.sectors.sectors),
+            "representatives_per_sector": representatives_per_sector,
+            "component_limit": component_limit,
+            "strict_pit": strict_pit,
+            "method": (
+                "Sector Discovery -> within-sector representativeness/liquidity/"
+                "relative-strength/data-coverage routing -> 7-Agent entry points"
+            ),
+        },
+    )
+
+
+def research_pool_markdown(result: ResearchPoolResult) -> str:
+    discovery = result.discovery
+    reps = result.representatives.representatives
+    lines = [
+        f"# A股行业发现与代表性研究池 — {result.as_of_date}",
+        "",
+        "> 本报告先确定行业研究优先级，再为每个行业选择少量代表性股票作为深度研究入口。",
+        "> 代表性评分不等于投资评分；它不使用 ROE、利润增长或估值质量来判断未来收益。",
+        "",
+        "## 1. Market Regime",
+        "",
+        f"- Regime: **{discovery.market.regime}**",
+        f"- Score: **{discovery.market.score:.1f}/100**",
+        f"- Summary: {discovery.market.summary}",
+        "",
+        "## 2. Sector Research Shortlist",
+        "",
+        _df_to_markdown(discovery.sectors.sectors)
+        if not discovery.sectors.sectors.empty
+        else "无可用行业。",
+        "",
+        "## 3. Representative Research Entries",
+        "",
+        f"- 行业成分候选数: {result.representatives.universe_size}",
+        f"- 完成历史/流动性校验: {result.representatives.scored_size}",
+        f"- 最终研究入口: {len(reps)}",
+        "",
+        _df_to_markdown(
+            reps.drop(columns=["research_context"], errors="ignore")
+        ) if not reps.empty else "没有可用代表性股票。",
+        "",
+        "## 4. Representative Score Contract",
+        "",
+        "- 35% 行业权重：衡量公司对该行业指数的代表性。",
+        "- 30% 流动性：使用 20 日平均成交额做行业内排名。",
+        "- 20% 行业内相对强弱：20/60 日收益仅用于选择更有研究价值的活跃代表。",
+        "- 15% 数据完整性：优先选择后续 7-Agent 能获得更完整证据的标的。",
+        "- 不使用 PE/PB/ROE/利润增长做代表股评分，避免把研究路由重新变成隐藏的跨行业选股模型。",
+        "",
+        "## 5. 7-Agent Handoff",
+        "",
+        "每个代表股都附带 research_context。该上下文只描述“为什么进入研究池”，"
+        "会被明确标记为 selection prior，而不是事实证据；Analyst 必须通过工具独立验证，"
+        "并允许最终结论否定该行业先验。",
+    ]
+    warnings = (
+        list(discovery.market.warnings)
+        + list(discovery.sectors.warnings)
+        + list(result.representatives.warnings)
+    )
+    if warnings:
+        lines += ["", "## 数据/质量提示", ""] + [f"- {w}" for w in warnings]
+    return "\n".join(lines).strip() + "\n"
+
+
+def write_research_pool_report(
+    result: ResearchPoolResult,
+    output_dir: str | Path,
+) -> Path:
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    result.discovery.market.indices.to_csv(out / "market_indices.csv", index=False)
+    result.discovery.sector_universe.to_csv(out / "sector_ranking.csv", index=False)
+    result.discovery.sectors.sectors.to_csv(out / "sector_shortlist.csv", index=False)
+    result.representatives.representatives.to_csv(
+        out / "representative_research_pool.csv",
+        index=False,
+    )
+    report = out / "research_pool_report.md"
+    report.write_text(research_pool_markdown(result), encoding="utf-8")
+    (out / "metadata.json").write_text(
+        json.dumps(
+            {
+                "as_of_date": result.as_of_date,
+                "market_regime": result.discovery.market.regime,
+                "market_score": result.discovery.market.score,
+                **result.discovery.metadata,
+                **result.metadata,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return report
 
 
 def discovery_markdown(result: SectorDiscoveryResult) -> str:
