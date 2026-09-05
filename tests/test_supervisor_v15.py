@@ -89,6 +89,8 @@ def test_research_versions_are_immutable_and_can_rollback(tmp_path):
     assert store.get_thread(tid)["research_context"] == "context-v1"
     versions = store.list_research_versions(tid)
     assert len(versions) == 2
+    assert store.reset(tid) is True
+    assert store.list_research_versions(tid) == []
 
 
 def test_audit_issue_can_target_specialist_repair():
