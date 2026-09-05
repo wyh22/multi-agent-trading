@@ -17,7 +17,7 @@
 
 本项目针对这些问题做了系统化改造：
 
-- 用确定性 Python 完成 **A 股行业发现与 Style Ranking**，Market Regime 只调整 Momentum / Value / Dividend / Liquidity 权重，不再通过 Top 行业硬门控个股；
+- 用确定性 Python 完成 **A 股行业发现与 Style Ranking**，Market Regime 只调整 Momentum / Value / Dividend / Liquidity 权重，不再通过 Top 行业硬门控个股；Top-K 行业之后再用行业权重、流动性、行业内相对强弱和数据完整性选择 Representative Research Entries；
 - 用 **Point-in-Time（PIT）数据约束**限制历史时点可见信息，降低未来数据泄漏；
 - 将原始多轮链路裁剪为 **7-Agent 并行 LangGraph**，分析师与 Bull/Bear 两阶段 Fan-Out/Fan-In；
 - 在 Agent 之间引入 **Claim-aware Context Compression**：将证据显式区分为 FACT / CALCULATION / INFERENCE / CONDITIONAL，并按类型与字符预算选择性压缩；
@@ -34,6 +34,7 @@
 | 并行执行 | Analyst Subgraph + Fan-Out/Fan-In | 降低串行 Agent 延迟 |
 | Claim-aware Context | FACT / CALCULATION / INFERENCE / CONDITIONAL + deterministic budget compression | 减少重复上下文，并防止推断/条件情景被升级为事实 |
 | A 股行业发现 | Market Regime + Momentum/Value/Dividend/Liquidity Style Rank + 可选 LightGBM | 避免跨行业用同一套个股财务因子硬排名，并把数值排序交给可审计模型 |
+| Representative Pool | 行业权重 + 流动性 + 行业内相对强弱 + 数据完整性 | 从 Top 行业选择 7-Agent 研究入口，不把研究路由伪装成投资评级 |
 | PIT 数据治理 | 披露日/发布日期截止过滤 | 降低未来函数与历史穿越 |
 | Decision Auditor | PASS / REVISE 条件路由 | 检查无依据推断和数字冲突 |
 | Finance MCP | Streamable HTTP + Local fallback + allowlist | 解耦 Agent 与金融数据工具 |
@@ -55,9 +56,9 @@ flowchart TD
     B --> B4[Liquidity Style]
     B --> B5[Optional LightGBM Ranker]
     B --> C[Top-K Sector Research Shortlist]
-    C --> C1[选择代表性股票]
-
-    C1 --> D{LangGraph Research}
+    C --> C1[Representative Research Pool]
+    C1 --> C2[Index Weight / Liquidity / Relative Strength / Data Coverage]
+    C2 --> D{LangGraph Research}
     D --> M[Market Analyst]
     D --> N[News & Sentiment Analyst]
     D --> F[Fundamentals Analyst]
@@ -144,13 +145,25 @@ python scripts/discover_a_share.py \
 python scripts/discovery_agent_demo.py --date 2026-08-20
 ```
 
-### 5. 单股深度研究
+### 5. 生成 Representative Research Pool
+
+```bash
+python scripts/discover_a_share.py \
+  --mode pool \
+  --date 2026-09-05 \
+  --top 4 \
+  --representatives-per-sector 2
+```
+
+这一层只选择“适合进入深度研究”的行业代表股，不输出买入评级。严格 PIT 模式下，历史日期若无法恢复当时真实申万成分，会主动拒绝，避免幸存者偏差。
+
+### 6. 单股深度研究
 
 ```bash
 python -m cli.main analyze
 ```
 
-### 6. FastAPI / Chat UI
+### 7. FastAPI / Chat UI
 
 ```bash
 uvicorn service.app:app --host 0.0.0.0 --port 8000
@@ -162,7 +175,7 @@ uvicorn service.app:app --host 0.0.0.0 --port 8000
 - Swagger：`http://localhost:8000/docs`
 - 浏览器 Chat UI：`http://localhost:8000/ui/`
 
-### 7. Docker Compose
+### 8. Docker Compose
 
 ```bash
 cp .env.example .env
@@ -195,6 +208,22 @@ curl -X POST http://localhost:8000/discover \
   }'
 ```
 
+### Representative Research Pool API
+
+```bash
+curl -X POST http://localhost:8000/research-pool \
+  -H "Content-Type: application/json" \
+  -d '{
+    "as_of_date": "2026-09-05",
+    "sector_top_n": 4,
+    "representatives_per_sector": 2,
+    "component_limit": 20,
+    "strict_pit": true
+  }'
+```
+
+返回的每个代表股包含 `research_context`。如果随后通过 `POST /analyze` 研究该 ticker，可将其作为 `candidate_context` 传入。7-Agent 会知道研究来源，但 Prompt 与 Auditor 都明确规定该来源只是 selection prior，不能作为投资证据。
+
 ### 多轮研究会话
 
 ```bash
@@ -213,7 +242,7 @@ multi-agent-trading/
 ├── tradingagents/
 │   ├── agents/          # Analysts / Researchers / Manager / Auditor
 │   ├── graph/           # LangGraph、Subgraph、Fan-In/Fan-Out
-│   ├── discovery/       # A 股行业发现、Style Rank、可选 LightGBM、legacy 股票筛选
+│   ├── discovery/       # 行业发现、Style Rank、Representative Pool、可选 LightGBM、legacy 股票筛选
 │   ├── conversation/    # 多轮会话路由与状态
 │   ├── mcp/             # Finance MCP Server / adapters
 │   ├── rag/             # Qdrant Hybrid RAG
@@ -269,6 +298,19 @@ python scripts/discover_a_share.py --mode all --date 2026-09-05 --top 6 --ml-mod
 ```bash
 python scripts/discover_a_share.py --mode legacy-stock --date 2026-09-05 --top 10
 ```
+
+### Representative Research Pool 为什么不是第二套选股模型
+
+Top-K 行业之后，每个行业只选少量代表性股票作为 7-Agent 的 Research Entry。评分刻意限定为：
+
+```text
+35% 申万行业指数权重
+30% 20日平均成交额
+20% 行业内20/60日相对强弱
+15% 数据完整性
+```
+
+这里**不使用 PE/PB、ROE、净利润增长或 Quality Score**。原因是这一层只负责“研究谁”，不负责“买谁”。每个代表股会生成 `research_context`，并以 `candidate_context` 进入 LangGraph；所有 Agent 都被要求把它当作 selection prior，而不是事实证据，Auditor 还会检查是否出现先验被升级成投资事实的情况。
 
 ## 关键工程设计
 
@@ -353,6 +395,7 @@ publish_date <= as_of_date
 ## 文档
 
 - [SECTOR_DISCOVERY.md](docs/SECTOR_DISCOVERY.md)：Sector-first Style Rank、Regime 权重、可选 LightGBM 与 legacy 对照
+- [INTERVIEW_GUIDE.md](docs/INTERVIEW_GUIDE.md)：90 秒项目介绍、各 Agent/Prompt/Tool 具体实现、深挖问题与面试答案
 - [PROJECT_WALKTHROUGH.md](docs/PROJECT_WALKTHROUGH.md)：从一次真实请求出发梳理行业发现、7-Agent、PIT、MCP/RAG、评测与服务化执行链路
 - [ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)：设计取舍、代码所有权边界、面向工程评审的实现说明
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
