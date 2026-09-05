@@ -233,13 +233,7 @@ multi-agent-trading/
 
 ## 验证与可复现性
 
-历史本地构建记录为：
-
-```text
-55 passed, 1 skipped
-```
-
-详见 [V1.4_VALIDATION.md](V1.4_VALIDATION.md)。当前分支进一步增加了 Evaluation / Backtest / import smoke tests，并通过 GitHub Actions 持续验证。
+测试数量会随功能演进变化，因此 README 不再把历史的固定 `passed` 数量当作当前质量指标。详见 [V1.4_VALIDATION.md](V1.4_VALIDATION.md) 与 GitHub Actions；当前 CI 持续验证 Python 3.11/3.12、依赖一致性、Compile、Import Smoke、Pytest 与 Docker Build。
 
 CI 在 Push / Pull Request 上执行：
 
