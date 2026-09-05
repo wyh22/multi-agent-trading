@@ -158,7 +158,7 @@ def run_research_pool(
         ml_weight=ml_weight,
         ranker=ranker,
     )
-    _validate_stock_discovery_date(as_of_date, strict_pit)
+    _validate_component_membership_date(as_of_date, strict_pit)
     reps = representative_selector(
         discovery.sectors.sectors,
         as_of_date,
@@ -363,15 +363,16 @@ def write_discovery_report(
 # Legacy stock discovery
 # ---------------------------------------------------------------------------
 
-def _validate_stock_discovery_date(as_of_date: str, strict_pit: bool) -> None:
+def _validate_component_membership_date(as_of_date: str, strict_pit: bool) -> None:
     if not strict_pit:
         return
     as_of = datetime.strptime(as_of_date, "%Y-%m-%d").date()
     if as_of < date.today() - timedelta(days=7):
         raise ValueError(
-            "严格 PIT 模式下，旧版自动选股仅支持当前/最近交易日（7天内）。"
-            "申万 index_component_sw 只提供当前成分股及计入日期，无法完整恢复历史退出成分，"
-            "直接用于历史日期会产生幸存者偏差。行业发现主链不受此限制。"
+            "严格 PIT 模式下，涉及申万个股成分的 Representative Pool / legacy-stock "
+            "仅支持当前或最近交易日（7天内）。index_component_sw 只提供当前成分及计入日期，"
+            "无法完整恢复历史退出成分；用于更早日期会产生幸存者偏差。"
+            "纯 Sector Discovery 不依赖个股成分恢复，因此历史日期仍可运行。"
         )
 
 
@@ -395,7 +396,7 @@ def run_stock_discovery_legacy(
         market_regime=market.regime,
         top_n=max(sector_count, 10),
     )
-    _validate_stock_discovery_date(as_of_date, strict_pit)
+    _validate_component_membership_date(as_of_date, strict_pit)
     top_sectors = sector_result.sectors.head(sector_count)
     components = load_sector_components(
         top_sectors,
