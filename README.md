@@ -358,7 +358,8 @@ publish_date <= as_of_date
 
 ## 文档
 
-- [PROJECT_WALKTHROUGH.md](docs/PROJECT_WALKTHROUGH.md)：从一次真实请求出发梳理候选发现、7-Agent、PIT、MCP/RAG、评测与服务化执行链路
+- [SECTOR_DISCOVERY.md](docs/SECTOR_DISCOVERY.md)：Sector-first Style Rank、Regime 权重、可选 LightGBM 与 legacy 对照
+- [PROJECT_WALKTHROUGH.md](docs/PROJECT_WALKTHROUGH.md)：从一次真实请求出发梳理行业发现、7-Agent、PIT、MCP/RAG、评测与服务化执行链路
 - [ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)：设计取舍、代码所有权边界、面向工程评审的实现说明
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
 - [MCP_RAG_DOCKER_GUIDE.md](MCP_RAG_DOCKER_GUIDE.md)：MCP、Qdrant Hybrid RAG、Docker
