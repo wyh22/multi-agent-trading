@@ -157,6 +157,15 @@ python scripts/discover_a_share.py \
 
 这一层只选择“适合进入深度研究”的行业代表股，不输出买入评级。严格 PIT 模式下，历史日期若无法恢复当时真实申万成分，会主动拒绝，避免幸存者偏差。
 
+可直接从生成的 Research Pool 携带来源上下文进入 7-Agent：
+
+```bash
+python scripts/analyze_representative.py \
+  --pool-csv reports/.../representative_research_pool.csv \
+  --ticker 600000.SH \
+  --date 2026-09-05
+```
+
 ### 6. 单股深度研究
 
 ```bash
