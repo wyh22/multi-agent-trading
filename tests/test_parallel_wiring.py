@@ -32,13 +32,16 @@ def test_redundant_original_agents_are_removed():
     assert not (ROOT / "tradingagents/agents/risk_mgmt").exists()
     assert not (ROOT / "tradingagents/agents/managers/research_manager.py").exists()
 
-def test_decision_auditor_can_route_back_once_for_revision():
+def test_decision_auditor_routes_repairs_to_responsible_capability():
     setup_source = _read("tradingagents/graph/setup.py")
     logic_source = _read("tradingagents/graph/conditional_logic.py")
     assert 'workflow.add_edge("Portfolio Manager", "Decision Auditor")' in setup_source
     assert "route_after_audit" in setup_source
-    assert '"修订": "Portfolio Manager"' in setup_source
-    assert 'status == "REVISE"' in logic_source
+    assert '"修订_market": repair_nodes["market"]' in setup_source
+    assert '"修订_news": repair_nodes["news"]' in setup_source
+    assert '"修订_fundamentals": repair_nodes["fundamentals"]' in setup_source
+    assert '"修订_pm": "Portfolio Manager"' in setup_source
+    assert 'state.get("audit_repair_target"' in logic_source
 
 def test_bull_and_bear_use_current_state_contract():
     from types import SimpleNamespace
