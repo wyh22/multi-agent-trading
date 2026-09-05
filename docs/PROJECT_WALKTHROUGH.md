@@ -6,8 +6,8 @@
 
 本项目是一个面向 A 股的研究辅助系统，而不是自动交易系统。核心目标包括：
 
-1. 使用确定性规则从全市场缩小候选范围；
-2. 对少量候选运行 7-Agent 深度研究；
+1. 使用确定性 / 可选 ML Ranker 发现值得优先研究的申万一级行业；
+2. 从优先行业中选择代表性股票，再运行 7-Agent 单股深度研究；
 3. 对历史研究施加 Point-in-Time 数据约束；
 4. 通过独立 Auditor 检查最终结论；
 5. 使用 MCP / RAG / FastAPI 解耦数据、知识库与 Agent 工作流；
@@ -19,7 +19,7 @@
 上游项目提供了通用多角色金融研究框架。本仓库主要二次开发集中在：
 
 - A 股数据适配与标的规范化；
-- 确定性候选发现 Pipeline；
+- Sector-first 行业发现 Pipeline + optional LightGBM Ranker；
 - 7-Agent 拓扑裁剪与两阶段并行化；
 - Point-in-Time 数据治理；
 - 独立 Decision Auditor；
@@ -31,36 +31,46 @@
 
 原始作者、项目归属和许可证信息见根目录 `NOTICE`。
 
-## 3. 一次候选发现请求如何执行
+## 3. 一次行业发现请求如何执行
 
 入口：
 
-- CLI：`python scripts/discover_a_share.py`
+- CLI：`python scripts/discover_a_share.py --mode all --top 6`
 - API：`POST /discover`
 - Conversation：discovery intent
 - Demo：`python scripts/discovery_agent_demo.py`
 
 核心路径：`tradingagents/discovery/`
 
-执行逻辑：
+默认执行逻辑：
 
 ```text
-A-share Universe
+A-share Market
     ↓
 Market Regime
     ↓
-Sector Selection
+SW Level-1 full cross-section
     ↓
-Multi-factor Screening
+Momentum / Value / Dividend / Liquidity
     ↓
-PIT Quality Screen
+Regime-aware Rule Rank
     ↓
-Soft Sector Cap
+Optional LightGBM Ranker
     ↓
-Research Shortlist
+Top-K Sector Research Shortlist
 ```
 
-这里刻意不让 LLM 直接从几千只股票中“挑股票”。排名、阈值、行业配额和财务质量筛选属于结构化问题，交给 Python 更可复现，也更适合回测。
+这里刻意不让 LLM 从几千只股票中“挑股票”，也不再让 Top Sector 成为个股进入后续计算的硬门槛。不同风格行业通过不同维度竞争：科技/成长板块可以依靠 Momentum，防御型板块可以依靠 Dividend/Value，Market Regime 只调整 Style 权重。
+
+如启用 LightGBM，模型输出会先转换为同日横截面百分位，再和 Rule Score 融合；Rule Score 保留用于审计和 fallback。仓库不内置未经时间滚动验证的预训练量化模型。
+
+旧版股票筛选仍可通过：
+
+```bash
+python scripts/discover_a_share.py --mode legacy-stock --date 2026-09-05 --top 10
+```
+
+用于 A/B 对照，但不再是默认应用入口。Top-K 行业之后，系统再选择代表性股票进入现有 7-Agent 单股研究。
 
 ## 4. 一次单股深度研究如何执行
 
@@ -290,7 +300,7 @@ agent-api
 
 建议按下面的顺序，而不是从“我用了几个 Agent”开始：
 
-1. **为什么候选发现用确定性 Python，而不是 LLM 选股**；
+1. **为什么把候选发现从股票 hard gate 重构为 Sector-first Style Rank**；
 2. **为什么历史研究需要 PIT，而不仅是普通 RAG**；
 3. **为什么 Analyst 使用私有 Subgraph 并行执行**；
 4. **为什么 Bull / Bear 只做一次互补假设，不做多轮复述**；
@@ -303,7 +313,7 @@ agent-api
 
 1. `tradingagents/graph/setup.py`
 2. `tradingagents/graph/analyst_subgraph.py`
-3. `tradingagents/discovery/pipeline.py`
+3. `tradingagents/discovery/pipeline.py` / `sectors.py` / `sector_ranker.py`
 4. `tradingagents/agents/auditors/decision_auditor.py`
 5. `tradingagents/rag/retriever.py`
 6. `tradingagents/mcp/server.py`
