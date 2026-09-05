@@ -17,7 +17,7 @@ from tradingagents.llm_clients import create_llm_client
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="A股候选发现协调智能体演示")
+    parser = argparse.ArgumentParser(description="A股行业发现协调智能体演示")
     parser.add_argument("--date", default=date.today().isoformat())
     parser.add_argument("--deep-research", type=int, default=3)
     parser.add_argument("--budget", choices=["low", "medium", "high"], default="low")
@@ -35,7 +35,7 @@ def main() -> int:
         research_budget=args.budget,
     )
 
-    print("\n=== 候选发现协调智能体 ===")
+    print("\n=== 行业发现协调智能体 ===")
     print(result.final_message)
     print("\n工具轨迹:")
     for index, item in enumerate(result.tool_trace, start=1):
