@@ -98,3 +98,23 @@ def test_report_writer_uses_current_state_fields():
         assert current in source
     for removed in ["investment_debate_state", "risk_debate_state", "trader_investment_plan"]:
         assert removed not in source
+
+
+def test_analyst_factories_accept_injected_tool_groups():
+    setup_source = _read("tradingagents/graph/setup.py")
+    specs = {
+        "market": "tradingagents/agents/analysts/market_analyst.py",
+        "news": "tradingagents/agents/analysts/news_analyst.py",
+        "fundamentals": "tradingagents/agents/analysts/fundamentals_analyst.py",
+    }
+    for key, path in specs.items():
+        source = _read(path)
+        factory = {
+            "market": "create_market_analyst",
+            "news": "create_news_analyst",
+            "fundamentals": "create_fundamentals_analyst",
+        }[key]
+        assert f"def {factory}(llm, tools=None):" in source
+        assert "active_tools = tools or [" in source
+        assert "llm.bind_tools(active_tools)" in source
+        assert f'self.tool_groups.get("{key}")' in setup_source
