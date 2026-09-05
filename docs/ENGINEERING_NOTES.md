@@ -194,12 +194,7 @@ pytest -q
 
 ## 11. 当前验证边界
 
-目前离线回归记录为：
-
-```text
-55 passed, 1 skipped
-```
-
+离线回归测试数量会随功能增加而变化，因此不再把历史固定的 `55 passed, 1 skipped` 当作当前状态。当前状态以 GitHub Actions 的 Python 3.11/3.12、Compile、Import Smoke、Pytest 与 Docker Build 为准。
 
 仍需要外部环境才能完整验证的部分：
 
