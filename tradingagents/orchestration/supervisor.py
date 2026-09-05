@@ -60,6 +60,8 @@ class ConversationSupervisor:
         history: list[dict[str, str]],
         research_context: str = "",
         force_mode: str = "auto",
+        observations: list[str] | None = None,
+        used_capabilities: list[str] | None = None,
     ) -> SupervisorAction:
         if force_mode != "auto":
             return self._fallback(
@@ -80,6 +82,8 @@ class ConversationSupervisor:
             for item in history[-8:]
         ) or "无"
         context = (research_context or "")[:5000]
+        observation_text = "\n\n".join((observations or [])[-3:])[:12000] or "无"
+        used_text = ", ".join(used_capabilities or []) or "无"
         prompt = f"""
 你是 A 股投研系统的 Conversation Supervisor。你的职责是根据用户目标选择最小、最合适的执行能力，
 而不是亲自编造金融事实。当前研究截止日期：{as_of_date}；当前标的：{current_ticker or '未指定'}。
@@ -97,6 +101,14 @@ class ConversationSupervisor:
 7. 任何需要事实/数字的新回答都不要直接 respond，必须通过工具、Agent 或 Skill 获取证据。
 8. 不要把行业排名、候选池分数直接当成投资事实。
 9. 所有历史事实必须满足 PIT 截止日期约束。
+10. 如果“本轮已获得结果”已经足够回答，就 respond；否则可以选择一个尚未使用的互补 Tool/Agent。
+11. 不要重复调用同一个 capability，除非上一次明确返回 retryable 错误。
+
+本轮已使用 capability：
+{used_text}
+
+本轮已获得结果：
+{observation_text}
 
 最近对话：
 {history_text}
