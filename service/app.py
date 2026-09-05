@@ -262,6 +262,7 @@ async def upload_knowledge(
             publish_date=publish_date,
             config=DEFAULT_CONFIG,
             doc_type=doc_type,
+            source_name=file.filename or temp_path.name,
         )
         return {
             "status": "indexed",
