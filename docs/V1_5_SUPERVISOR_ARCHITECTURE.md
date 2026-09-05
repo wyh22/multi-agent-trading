@@ -12,7 +12,7 @@ Supervisor 根据任务复杂度和已有上下文选择最小必要能力：
 5. `run_deep_research`：复杂综合研究才进入完整多角色研究图；
 6. `rollback`：恢复上一版或指定研究版本。
 
-高层路由由结构化 LLM 决策；ticker/date/PIT、安全边界和 fallback 保持 deterministic。
+高层路由由结构化 LLM 决策；ticker/date/PIT、安全边界和 fallback 保持 deterministic。对原子 Tool / Specialist Agent，Supervisor 默认最多执行 3 步有界 `Decide → Execute → Observe → Re-decide`，并记录 `supervisor_trace`；重复 capability 会触发 repeat guard。Skill、Deep Research 和 Rollback 仍是终止动作。
 
 ## 为什么不是所有请求都跑 Multi-Agent
 
@@ -90,7 +90,7 @@ Research Version 采用 append-only/immutable 设计，Rollback 不删除历史�
 
 ## 当前边界
 
-V1.5 有 Conversation-level dynamic routing，但没有宣称所有复杂任务都已经具备通用自由 DAG Planning。
+V1.5 有 Conversation-level dynamic routing 与有界执行后再决策，但没有宣称所有复杂任务都已经具备通用自由 DAG Planning。
 复杂单股研究仍使用可审计的 Deep Research Skill；后续只有在 benchmark 证明需要时，才进一步引入动态 Task DAG / Replanning。
 
 这一边界是刻意设计：金融研究优先可复现、PIT、证据链与故障可控，而不是追求最大自治程度。
