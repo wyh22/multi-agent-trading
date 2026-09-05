@@ -366,4 +366,4 @@ tradingagents/discovery/representatives.py
 
 严格 PIT 下，Representative Pool 依赖申万当前成分数据，因此历史日期超过最近交易窗口时会主动拒绝，避免用当前成分回填历史产生 survivor bias。
 
-每条代表股记录附带 \`research_context\`。它进入 7-Agent 后被标记为 selection prior / NOT evidence，Analyst 仍必须重新调用市场、新闻和基本面工具验证，Auditor 也检查是否把候选来源升级成投资事实。
+每条代表股记录附带 `research_context`。它进入 7-Agent 后被标记为 selection prior / NOT evidence，Analyst 仍必须重新调用市场、新闻和基本面工具验证，Auditor 也检查是否把候选来源升级成投资事实。
