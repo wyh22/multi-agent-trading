@@ -23,9 +23,24 @@ def create_news_analyst(llm, tools=None):
             get_global_news,
             get_macro_indicators,
         ]
+        active_tool_names = {tool.name for tool in active_tools}
+        optional_guidance = ""
+        if "get_insider_transactions" in active_tool_names:
+            optional_guidance += (
+                " When available, use get_insider_transactions for management/"
+                "related-person holding changes and treat them as event evidence, "
+                "not as an automatic bullish/bearish signal."
+            )
+        if "search_company_knowledge" in active_tool_names:
+            optional_guidance += (
+                " When available, use search_company_knowledge for PIT-aware "
+                "company documents such as filings/announcements; every retrieval "
+                "must use the current research cutoff date."
+            )
 
         system_message = (
             f"You are the News & Sentiment Analyst for an A-share research workflow. Analyze company announcements/news, broader market information, and Chinese macro conditions available no later than the research cutoff date. Use get_news(ticker, start_date, end_date) for {asset_label}-specific evidence, get_global_news(curr_date, look_back_days, limit) for broader market information, and get_macro_indicators(indicator, curr_date, look_back_days) for PIT-aware Chinese macro series such as cpi, ppi, gdp, pmi, lpr, m2, or unemployment. Treat missing data explicitly as uncertainty and never fabricate facts, probabilities, or market sentiment."
+            + optional_guidance
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
             + claim_boundary_instruction()
             + get_language_instruction()
