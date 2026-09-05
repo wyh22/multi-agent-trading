@@ -500,7 +500,7 @@ class ConversationAgent:
         target = str(action.target or "")
         if target == "sector_discovery":
             answer, metadata = self._run_sector_skill(message, cutoff)
-            return answer, "skill:sector_discovery", {"metadata": metadata}
+            return answer, "skill:sector_discovery", {"kind": "context_metadata", "metadata": metadata}
 
         if target == "document_evidence_analysis":
             if not ticker:
@@ -540,7 +540,7 @@ class ConversationAgent:
                 "audit_status": state.get("audit_status", ""),
                 "signal": signal,
             }
-            return answer, "skill:deep_stock_research", payload
+            return answer, "skill:deep_stock_research", {"kind": "research_version", "payload": payload}
 
         if target == "company_comparison":
             tickers = [
@@ -733,11 +733,12 @@ class ConversationAgent:
             "supervisor_action": action.action,
             "supervisor_target": action.target,
         }
-        if version_payload:
+        if version_payload and version_payload.get("kind") == "research_version":
+            payload = dict(version_payload.get("payload", {}) or {})
             version_id = self.store.save_research_version(
                 tid,
-                version_payload,
-                audit_status=str(version_payload.get("audit_status", "") or ""),
+                payload,
+                audit_status=str(payload.get("audit_status", "") or ""),
             )
             metadata["active_research_version_id"] = version_id
             self.store.update_context(
@@ -745,17 +746,14 @@ class ConversationAgent:
                 current_ticker=resolved_ticker,
                 as_of_date=cutoff,
                 last_intent=route,
-                research_context=str(
-                    version_payload.get("research_context", "") or ""
-                ),
+                research_context=str(payload.get("research_context", "") or ""),
                 metadata=metadata,
             )
         else:
-            skill_metadata = None
-            if route == "skill:sector_discovery":
-                _, skill_metadata = self._run_sector_skill(message, cutoff)
-            if skill_metadata:
-                metadata.update(skill_metadata)
+            if version_payload and version_payload.get("kind") == "context_metadata":
+                metadata.update(
+                    dict(version_payload.get("metadata", {}) or {})
+                )
             self.store.update_context(
                 tid,
                 current_ticker=resolved_ticker,
