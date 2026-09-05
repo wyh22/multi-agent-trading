@@ -115,8 +115,12 @@ def build_analyst_runner(
     ) -> dict[str, Any]:
         ticker = str(parent_state["company_of_interest"])
         trade_date = str(parent_state["trade_date"])
+        objective = str(parent_state.get("audit_feedback", "") or "").strip()
+        request = f"分析 {ticker}，截止日期 {trade_date}。"
+        if objective:
+            request += f"\n本轮明确任务/修订要求：{objective}"
         child_state: dict[str, Any] = {
-            "messages": [HumanMessage(content=f"分析 {ticker}，截止日期 {trade_date}。")],
+            "messages": [HumanMessage(content=request)],
             "company_of_interest": ticker,
             "asset_type": parent_state.get("asset_type", "stock"),
             "instrument_context": parent_state.get("instrument_context", ""),
