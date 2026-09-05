@@ -84,7 +84,7 @@ python scripts/discover_a_share.py \
   --representatives-per-sector 2
 ~~~
 
-代表股评分只使用行业指数权重、流动性、行业内相对强弱和数据完整性，不使用 PE/ROE/利润增速等投资质量因子。输出 CSV 中每个 ticker 都带有 \`research_context\`。
+代表股评分只使用行业指数权重、流动性、行业内相对强弱和数据完整性，不使用 PE/ROE/利润增速等投资质量因子。输出 CSV 中每个 ticker 都带有 `research_context`。
 
 随后可以：
 
@@ -95,7 +95,7 @@ python scripts/analyze_representative.py \
   --date 2026-09-05
 ~~~
 
-\`research_context\` 会进入 LangGraph 的 \`candidate_context\` 状态，但所有 Agent 都会收到“selection prior; NOT evidence”约束。Auditor 额外检查是否把行业 Style、代表性评分或入选原因升级成公司投资事实。
+`research_context` 会进入 LangGraph 的 `candidate_context` 状态，但所有 Agent 都会收到“selection prior; NOT evidence”约束。Auditor 额外检查是否把行业 Style、代表性评分或入选原因升级成公司投资事实。
 
 ## 4. 一次单股深度研究如何执行
 
