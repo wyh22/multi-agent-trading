@@ -167,3 +167,15 @@ def test_service_exposes_knowledge_and_version_routes():
     assert '@app.post("/knowledge/upload")' in source
     assert '@app.get("/chat/{thread_id}/versions")' in source
     assert '@app.post("/chat/{thread_id}/rollback")' in source
+
+
+def test_unapproved_research_does_not_enter_long_term_memory():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "tradingagents"
+        / "graph"
+        / "trading_graph.py"
+    ).read_text(encoding="utf-8")
+    assert 'if audit_status == "PASS":' in source
+    assert 'else "REVIEW"' in source
+    assert "self.memory_log.store_decision" in source
