@@ -118,3 +118,32 @@ def test_analyst_factories_accept_injected_tool_groups():
         assert "active_tools = tools or [" in source
         assert "llm.bind_tools(active_tools)" in source
         assert f'self.tool_groups.get("{key}")' in setup_source
+
+
+def test_graph_setup_builds_with_injected_local_tool_groups():
+    from langgraph.prebuilt import ToolNode
+
+    from tradingagents.agents.utils.tool_registry import build_local_tool_groups
+    from tradingagents.graph.conditional_logic import ConditionalLogic
+    from tradingagents.graph.setup import GraphSetup
+
+    class FakeLLM:
+        # Portfolio Manager / Auditor detect this as unsupported structured output
+        # during graph construction and fall back without making any LLM call.
+        def with_structured_output(self, _schema):
+            raise NotImplementedError
+
+    groups = build_local_tool_groups({"rag_enabled": False})
+    tool_nodes = {key: ToolNode(value) for key, value in groups.items()}
+    workflow = GraphSetup(
+        FakeLLM(),
+        FakeLLM(),
+        tool_nodes,
+        ConditionalLogic(max_audit_rounds=2),
+        tool_groups=groups,
+    ).setup_graph(("market", "news", "fundamentals"))
+
+    # This is intentionally a real graph-construction smoke test.  It catches
+    # factory signature drift that compile/import-only CI cannot detect.
+    compiled = workflow.compile()
+    assert compiled is not None
