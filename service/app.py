@@ -142,6 +142,8 @@ def research_pool(req: ResearchPoolRequest):
             ),
             "warnings": result.representatives.warnings,
         }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=500,
