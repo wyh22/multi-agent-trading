@@ -582,14 +582,20 @@ class TradingAgentsGraph:
         # Log state to disk.
         self._log_state(trade_date, final_state)
 
-        # Store decision for deferred reflection on the next same-ticker run.
-        self.memory_log.store_decision(
-            ticker=company_name,
-            trade_date=trade_date,
-            final_trade_decision=final_state["final_trade_decision"],
-        )
+        audit_status = str(final_state.get("audit_status", "") or "").upper()
 
-        # Clear checkpoint on successful completion to avoid stale state.
+        # Only approved research becomes long-term outcome/reflection memory.
+        # A max-round REVISE is preserved in the run log/version history but
+        # must not teach future agents from an unapproved decision.
+        if audit_status == "PASS":
+            self.memory_log.store_decision(
+                ticker=company_name,
+                trade_date=trade_date,
+                final_trade_decision=final_state["final_trade_decision"],
+            )
+
+        # Clear checkpoint on successful execution to avoid stale state. An
+        # audit REVISE is a completed-but-unapproved result, not a crash.
         self.clear_checkpoint_on_success(
             company_name,
             trade_date,
@@ -597,7 +603,12 @@ class TradingAgentsGraph:
             candidate_context=candidate_context,
         )
 
-        return final_state, self.process_signal(final_state["final_trade_decision"])
+        signal = (
+            self.process_signal(final_state["final_trade_decision"])
+            if audit_status == "PASS"
+            else "REVIEW"
+        )
+        return final_state, signal
 
     def _log_state(self, trade_date, final_state):
         """Persist only fields that belong to the seven-agent research graph."""
