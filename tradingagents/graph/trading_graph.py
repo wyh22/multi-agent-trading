@@ -200,9 +200,12 @@ class TradingAgentsGraph:
     def _create_tool_nodes(self) -> dict[str, ToolNode]:
         """Wrap the configured market/news/fundamentals tool groups."""
         return {
-            "market": ToolNode(self.tool_groups["market"]),
+            "market": ToolNode(self.tool_groups["market"], handle_tool_errors=True),
             "news": ToolNode(self.tool_groups["news"], handle_tool_errors=True),
-            "fundamentals": ToolNode(self.tool_groups["fundamentals"]),
+            "fundamentals": ToolNode(
+                self.tool_groups["fundamentals"],
+                handle_tool_errors=True,
+            ),
         }
 
     def _resolve_benchmark(self, ticker: str) -> str:
@@ -611,6 +614,10 @@ class TradingAgentsGraph:
             "audit_report": final_state.get("audit_report", ""),
             "audit_status": final_state.get("audit_status", ""),
             "audit_round": final_state.get("audit_round", 0),
+            "audit_issues": final_state.get("audit_issues", []),
+            "audit_repair_target": final_state.get(
+                "audit_repair_target", "portfolio_manager"
+            ),
             "analyst_trace": final_state.get("analyst_trace", []),
         }
 
