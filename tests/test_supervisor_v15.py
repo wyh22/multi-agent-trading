@@ -119,8 +119,10 @@ def test_document_loaders_support_txt_pdf_and_docx(tmp_path):
         txt,
         ticker="600519.SH",
         publish_date="2026-09-01",
+        source_name="uploaded-note.txt",
     )
     assert txt_docs[0].metadata["file_hash"]
+    assert txt_docs[0].url == "upload://uploaded-note.txt"
     assert "公司公告" in txt_docs[0].text
 
     import fitz
