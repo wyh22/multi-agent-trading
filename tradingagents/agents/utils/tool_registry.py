@@ -48,13 +48,12 @@ def build_local_tool_groups(config: dict):
             get_cashflow,
             get_income_statement,
         ],
-        "knowledge": [],
     }
     if config.get("rag_enabled", False):
         # RAG is a shared read-only evidence capability. News and Fundamentals
         # may both use it, while the explicit knowledge group lets the
         # Conversation Supervisor call it directly.
-        groups["knowledge"].append(search_company_knowledge)
+        groups["knowledge"] = [search_company_knowledge]
         _append_unique(groups["news"], search_company_knowledge)
         _append_unique(groups["fundamentals"], search_company_knowledge)
     return groups
