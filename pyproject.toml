@@ -72,6 +72,9 @@ Upstream = "https://github.com/TauricResearch/TradingAgents"
 include = ["tradingagents*", "cli*"]
 exclude = ["tests*", "evaluation*"]
 
+[tool.setuptools.package-data]
+"tradingagents.skills" = ["manifests/*.yaml"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"
