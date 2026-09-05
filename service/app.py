@@ -26,6 +26,7 @@ class AnalyzeRequest(BaseModel):
     )
     candidate_context: str | None = Field(
         default=None,
+        max_length=3000,
         description=(
             "可选的行业发现/代表股研究来源。仅作为研究路由先验，"
             "不会被 Agent 当作投资事实。"
