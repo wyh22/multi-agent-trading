@@ -16,7 +16,7 @@ from tradingagents.discovery.pipeline import run_discovery, run_research_pool
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.rag.ingestion import ingest_path
 
-app = FastAPI(title="TradingAgents A-share Agent API", version="1.4")
+app = FastAPI(title="TradingAgents A-share Agent API", version="1.5")
 app.mount("/ui", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="chat-ui")
 
 
@@ -78,7 +78,7 @@ def _conversation_agent() -> ConversationAgent:
 def health():
     return {
         "status": "ok",
-        "version": "1.4",
+        "version": "1.5",
         "conversation_enabled": True,
         "mcp_enabled": bool(DEFAULT_CONFIG.get("mcp_enabled", False)),
         "rag_enabled": bool(DEFAULT_CONFIG.get("rag_enabled", False)),
