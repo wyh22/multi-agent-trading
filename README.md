@@ -261,6 +261,40 @@ curl -X POST http://localhost:8000/chat \
   }'
 ```
 
+`mode=auto` 默认由 Conversation Supervisor 选择最小必要能力。简单事实查询可直接走 Tool，单领域复杂问题可委派专业 Analyst，只有完整综合研究才进入 `deep_stock_research` Skill。
+
+### 上传 PDF / DOCX 到共享 RAG
+
+```bash
+curl -X POST http://localhost:8000/knowledge/upload \
+  -F "file=@./annual_report.pdf" \
+  -F "ticker=600519.SH" \
+  -F "publish_date=2026-04-02" \
+  -F "doc_type=annual_report"
+```
+
+也可以使用 CLI：
+
+```bash
+python scripts/rag_ingest.py \
+  --file ./annual_report.pdf \
+  --ticker 600519.SH \
+  --publish-date 2026-04-02 \
+  --doc-type annual_report
+```
+
+### 查看与回滚研究版本
+
+```bash
+curl http://localhost:8000/chat/<thread_id>/versions
+
+curl -X POST http://localhost:8000/chat/<thread_id>/rollback \
+  -H "Content-Type: application/json" \
+  -d '{"version_id": null}'
+```
+
+也可以直接在会话中说“撤销上一版研究”或“回滚”。Rollback 恢复 Research Version；LangGraph Checkpoint 仍只用于运行过程崩溃后的 resume。
+
 ## 项目结构
 
 ```text
