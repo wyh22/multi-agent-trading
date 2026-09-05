@@ -335,6 +335,15 @@ class ConversationStore:
                 context = str(payload.get("research_context", "") or "")
                 ticker = payload.get("ticker")
                 as_of_date = payload.get("as_of_date")
+                thread_row = conn.execute(
+                    "SELECT metadata_json FROM conversation_threads WHERE thread_id=?",
+                    (thread_id,),
+                ).fetchone()
+                try:
+                    metadata = json.loads(thread_row["metadata_json"] or "{}") if thread_row else {}
+                except json.JSONDecodeError:
+                    metadata = {}
+                metadata["active_research_version_id"] = int(target["id"])
                 conn.execute(
                     """
                     UPDATE conversation_threads SET
@@ -342,10 +351,18 @@ class ConversationStore:
                         current_ticker=COALESCE(?, current_ticker),
                         as_of_date=COALESCE(?, as_of_date),
                         last_intent='rollback',
+                        metadata_json=?,
                         updated_at=?
                     WHERE thread_id=?
                     """,
-                    (context, ticker, as_of_date, _utc_now(), thread_id),
+                    (
+                        context,
+                        ticker,
+                        as_of_date,
+                        json.dumps(metadata, ensure_ascii=False),
+                        _utc_now(),
+                        thread_id,
+                    ),
                 )
             return decoded
 
