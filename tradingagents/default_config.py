@@ -43,6 +43,7 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_CONVERSATION_DB_PATH": "conversation_db_path",
     "TRADINGAGENTS_CONVERSATION_HISTORY_TURNS": "conversation_history_turns",
     "TRADINGAGENTS_CONVERSATION_TOOL_ROUNDS": "conversation_tool_rounds",
+    "TRADINGAGENTS_KNOWLEDGE_UPLOAD_MAX_MB": "knowledge_upload_max_mb",
 }
 
 _BOOL_TRUE = ("true", "1", "yes", "on")
@@ -127,6 +128,7 @@ DEFAULT_CONFIG = _apply_env_overrides({
     ),
     "conversation_history_turns": 12,
     "conversation_tool_rounds": 4,
+    "knowledge_upload_max_mb": 25,
     "news_article_limit": 20,
     "global_news_article_limit": 10,
     "global_news_lookback_days": 7,
