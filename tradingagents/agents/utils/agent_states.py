@@ -33,6 +33,8 @@ class AgentState(MessagesState):
     audit_report: Annotated[str, "决策审计报告"]
     audit_status: Annotated[str, "审计状态：PENDING/PASS/REVISE"]
     audit_feedback: Annotated[str, "提供给投资组合经理的修订要求"]
+    audit_issues: Annotated[list[dict[str, Any]], "结构化审计问题"]
+    audit_repair_target: Annotated[str, "本轮优先重新取证/修订的责任能力"]
     audit_round: Annotated[int, "已经执行的审计轮次"]
 
     past_context: Annotated[str, "同标的历史决策与复盘摘要"]

@@ -1,0 +1,6 @@
+name: deep_stock_research
+description: 完整单股研究，按需运行 Market/News/Fundamentals、Bull/Bear、Portfolio Manager 与 Auditor。
+requires_ticker: true
+requires_audit: true
+allowed_agents: [market, news, fundamentals]
+completion: 最终研究结论必须经过 Auditor，REVISE 时进入定向修复回路。

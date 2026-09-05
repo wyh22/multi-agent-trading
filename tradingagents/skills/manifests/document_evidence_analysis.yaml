@@ -1,0 +1,6 @@
+name: document_evidence_analysis
+description: 对已入库 PDF/DOCX/公告/财报执行 PIT-aware 混合检索并基于证据回答。
+requires_ticker: true
+requires_audit: false
+allowed_agents: [news, fundamentals]
+completion: 回答必须保留文档来源和发布日期语义，不得将检索缺失解释为事实不存在。

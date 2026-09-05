@@ -1,21 +1,23 @@
 """决策审计智能体。
 
-该智能体不生成新的投资观点，只检查最终研究结论是否被现有证据支持、
-是否违反 Point-in-Time 截止规则、是否存在数字或方向冲突。若发现明显问题，
-通过 LangGraph 条件边要求投资组合经理最多修订一次。
+该节点不生成新的投资观点，只检查最终研究结论，并把实质性问题
+结构化路由到最适合重新取证/修订的责任能力。
 """
 
 from __future__ import annotations
 
 from tradingagents.agents.schemas import AuditResult, render_audit_result
 from tradingagents.agents.utils.agent_utils import get_candidate_context_from_state
-from tradingagents.agents.utils.context_compaction import build_decision_context, compact_text
+from tradingagents.agents.utils.context_compaction import (
+    build_decision_context,
+    compact_text,
+)
 from tradingagents.agents.utils.evidence_claims import claim_usage_instruction
 from tradingagents.agents.utils.structured import NO_EXTERNAL_TOOLS, bind_structured
 
 
-def _fallback_audit(llm, prompt: str) -> tuple[str, str, str]:
-    """结构化输出不可用时，使用保守的文本审计回退。"""
+def _fallback_audit(llm, prompt: str) -> tuple[str, str, str, list[dict], str]:
+    """结构化输出不可用时，保守退回 PM 文本修订。"""
 
     response = llm.invoke(
         prompt
@@ -24,7 +26,18 @@ def _fallback_audit(llm, prompt: str) -> tuple[str, str, str]:
     text = response.content.strip()
     status = "REVISE" if text.upper().startswith("REVISE") else "PASS"
     feedback = text if status == "REVISE" else ""
-    return text, status, feedback
+    return text, status, feedback, [], "portfolio_manager"
+
+
+def _primary_target(result: AuditResult) -> str:
+    if not result.issues:
+        return "portfolio_manager"
+    target = result.issues[0].repair_target
+    # RAG is an evidence tool rather than a graph node. Route the actual repair
+    # to the evidence-owning analyst; the analyst may call shared RAG itself.
+    if target == "rag":
+        return "news"
+    return target
 
 
 def create_decision_auditor(llm):
@@ -47,7 +60,10 @@ def create_decision_auditor(llm):
 
 ## 上游证据
 {evidence_context}
-\n## Claim 类型规则\n{claim_usage_instruction()}\n
+
+## Claim 类型规则
+{claim_usage_instruction()}
+
 ## 待审计最终结论
 {final_decision}
 
@@ -59,18 +75,28 @@ def create_decision_auditor(llm):
 5. 是否存在同一指标前后数值冲突；
 6. 是否把行业发现得分、Style 标签或代表股选择原因误写成公司投资事实或评级依据。
 
+修复路由规则：
+- 行情/指标/价格证据缺失 -> market；
+- 公告/新闻/政策/公司文档证据缺失 -> news；
+- 财务报表/估值/现金流证据缺失 -> fundamentals；
+- 只是最终综合、措辞、评级逻辑问题 -> portfolio_manager；
+- 如果最直接需要重新查知识库，可以标记 rag，系统会交给能调用共享 RAG 的专业 Agent。
+- REVISE 时 issues 至少给出一个问题，并明确 instruction。
+- PASS 时 issues 应为空。
+
 判定规则：
 - 轻微措辞问题可以 PASS；
 - 只有会实质影响结论可信度的问题才 REVISE；
-- unsupported_claims 和 revision_instructions 各最多 5 项；
-- 审计摘要控制在 300~500 个中文字符；
+- unsupported_claims、revision_instructions、issues 各最多 5 项；
 - 不得调用工具，不得加入新事实。
 
 {NO_EXTERNAL_TOOLS}
 """.strip()
 
         if structured_llm is None:
-            report, status, feedback = _fallback_audit(llm, prompt)
+            report, status, feedback, issues, repair_target = _fallback_audit(
+                llm, prompt
+            )
         else:
             try:
                 result = structured_llm.invoke(prompt)
@@ -78,18 +104,34 @@ def create_decision_auditor(llm):
                     raise ValueError("结构化审计没有返回结果")
                 report = render_audit_result(result)
                 status = result.verdict
+                issues = [item.model_dump() for item in result.issues[:5]]
+                repair_target = (
+                    _primary_target(result)
+                    if status == "REVISE"
+                    else "portfolio_manager"
+                )
+                instructions = list(result.revision_instructions[:5])
+                if status == "REVISE" and result.issues:
+                    instructions.extend(
+                        f"[{item.repair_target}/{item.issue_type}] {item.instruction}"
+                        for item in result.issues[:5]
+                    )
                 feedback = (
-                    "\n".join(f"- {item}" for item in result.revision_instructions[:5])
+                    "\n".join(f"- {item}" for item in instructions[:8])
                     if status == "REVISE"
                     else ""
                 )
             except Exception:
-                report, status, feedback = _fallback_audit(llm, prompt)
+                report, status, feedback, issues, repair_target = _fallback_audit(
+                    llm, prompt
+                )
 
         return {
             "audit_report": report,
             "audit_status": status,
             "audit_feedback": feedback,
+            "audit_issues": issues,
+            "audit_repair_target": repair_target,
             "audit_round": current_round,
         }
 

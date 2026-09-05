@@ -1,4 +1,4 @@
-# Interview Guide — A股 Sector Discovery + 7-Agent Research System
+# Interview Guide — A股 Conversation-first Agentic Research System
 
 > 目标：用这份文档在面试前 30~60 分钟快速复习项目。  
 > 项目定位：**研究辅助系统，不是自动交易系统**。  
@@ -10,8 +10,9 @@
 
 可以直接这样回答：
 
-> 这个项目基于 TradingAgents 做了比较深的二次开发。我没有继续堆更多 Agent，而是把问题拆成两层：前面用确定性 Python / 可选量化 Ranker 做 A 股行业研究优先级发现，后面只对少量代表性股票运行高成本的 7-Agent 深度研究。
+> 这个项目基于 TradingAgents 做了比较深的二次开发。V1.5 的主入口不是固定 7-Agent，而是 Conversation-first Supervisor：它围绕用户对话，在原子 Tool、Market/News/Fundamentals 专业 Agent、任务级 Skill 和完整 Deep Research 之间选择最小必要能力；ticker、日期、PIT 和安全边界仍由 deterministic Python 控制。固定多角色图被保留为高成本的 deep_stock_research Skill，而不是所有请求的默认路径。
 >
+
 > Discovery 侧先判断 Market Regime，再对全部申万一级行业计算 Momentum、Value、Dividend、Liquidity 四类 Style Score；Regime 只动态调整 Style 权重，不再像旧版那样用 Top Sector 对股票做硬门控。可选 LightGBM 作为二阶段横截面 Ranker，但 Rule Score 永远保留用于解释和 fallback。
 >
 > Top-K 行业之后，我增加了 Representative Research Pool：每个行业只根据行业指数权重、流动性、行业内相对强弱和数据完整性选 2~3 只研究入口，不用 PE、ROE、利润增长等指标再次偷偷做“选股”。这些代表股再进入 7-Agent。
@@ -23,6 +24,18 @@
 > 最后我把 Agent Evaluation 和 Outcome Backtest 分开：前者评估 Tool Choice、PIT、Trajectory、Grounding，后者才看实际收益和基准超额，避免把“市场偶然涨跌”误当成 Agent 工程质量。
 
 ---
+
+## 1.1 面试先讲清：Agent vs Workflow vs Skill
+
+推荐直接说明：
+
+> 我不认为所有带 LLM 的节点都叫 Agent，也不认为所有任务都应该 Agent 化。Sector Discovery、PIT、数值计算和排序属于 deterministic workflow；Market/News/Fundamentals 是真正带 Tool Loop 的 Agent；Bull/Bear/PM/Auditor 是角色化推理节点；Deep Research、Document Evidence Analysis 等则包装成 Skill。Conversation Supervisor 负责根据用户目标选择这些能力。
+
+V1.5 另外补了两个闭环：
+
+- Auditor 发现缺证据时，不再只让 PM 改文字，而是通过 `repair_target` 定向让责任 Analyst 重新取证；
+- Research Version 使用 append-only SQLite 版本，返修后仍未通过审计且已有旧 PASS 版本时可自动 rollback；LangGraph Checkpoint 则只负责 crash resume。
+
 
 ## 2. 一张图讲清系统
 
@@ -511,7 +524,7 @@ candidate_context
 6. Portfolio Manager
 7. Decision Auditor
 
-不是越多越好。
+其中 Market / News / Fundamentals 具备 LLM ↔ ToolNode 的 Action-Observation-ReDecision Loop；Bull、Bear、Portfolio Manager、Auditor 更准确地属于 role-specialized reasoning nodes。不是越多越好。
 
 旧 TradingAgents 有更多角色、多轮辩论和 Risk Debate。
 
@@ -633,6 +646,7 @@ tradingagents/agents/analysts/fundamentals_analyst.py
 - get_balance_sheet
 - get_cashflow
 - get_income_statement
+- search_company_knowledge（RAG enabled 时，用于年报原文、财务附注、减值/会计政策等非结构化证据）
 
 关注：
 
