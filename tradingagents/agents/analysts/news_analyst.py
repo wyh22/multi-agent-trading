@@ -11,14 +11,14 @@ from tradingagents.agents.utils.agent_utils import (
 )
 
 
-def create_news_analyst(llm):
+def create_news_analyst(llm, tools=None):
     def news_analyst_node(state):
         current_date = state["trade_date"]
         asset_type = state.get("asset_type", "stock")
         asset_label = "company" if asset_type == "stock" else "asset"
         instrument_context = get_instrument_context_from_state(state)
 
-        tools = [
+        active_tools = tools or [
             get_news,
             get_global_news,
             get_macro_indicators,
@@ -49,11 +49,11 @@ def create_news_analyst(llm):
         )
 
         prompt = prompt.partial(system_message=system_message)
-        prompt = prompt.partial(tool_names=", ".join([tool.name for tool in tools]))
+        prompt = prompt.partial(tool_names=", ".join([tool.name for tool in active_tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
 
-        chain = prompt | llm.bind_tools(tools)
+        chain = prompt | llm.bind_tools(active_tools)
         result = chain.invoke(state["messages"])
 
         report = ""
