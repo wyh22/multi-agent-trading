@@ -1,6 +1,7 @@
 """看空研究员：基于三类分析师证据独立形成一次性风险论点。"""
 
 from tradingagents.agents.utils.agent_utils import (
+    get_candidate_context_from_state,
     get_instrument_context_from_state,
     get_language_instruction,
 )
@@ -13,6 +14,7 @@ def create_bear_researcher(llm):
 
     def bear_node(state) -> dict:
         instrument_context = get_instrument_context_from_state(state)
+        candidate_context = get_candidate_context_from_state(state)
         evidence_context = build_analyst_context(state)
 
         prompt = f"""
@@ -20,6 +22,8 @@ def create_bear_researcher(llm):
 而是基于已经完成的市场、新闻/公告/宏观、基本面证据，独立形成一次紧凑的风险假设。
 
 {instrument_context}
+
+{candidate_context}
 
 ## 上游证据
 {evidence_context or '当前没有可用的上游证据。'}
