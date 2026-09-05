@@ -18,8 +18,10 @@ os.environ.setdefault("TQDM_DISABLE", "1")
 from tradingagents.discovery.market import analyze_market_regime
 from tradingagents.discovery.pipeline import (
     run_discovery,
+    run_research_pool,
     run_stock_discovery_legacy,
     write_discovery_report,
+    write_research_pool_report,
 )
 from tradingagents.discovery.sectors import analyze_sectors
 
@@ -84,7 +86,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--mode",
-        choices=["market", "sectors", "all", "legacy-stock"],
+        choices=["market", "sectors", "all", "pool", "legacy-stock"],
         default="all",
     )
     parser.add_argument("--date", default=date.today().isoformat())
@@ -106,6 +108,18 @@ def main() -> int:
         help="ML percentile score 与 Rule Score 的融合权重，范围 0~1。",
     )
     parser.add_argument("--output", default=None)
+    parser.add_argument(
+        "--representatives-per-sector",
+        type=int,
+        default=2,
+        help="pool 模式下每个 Top 行业选择多少只代表性研究入口。",
+    )
+    parser.add_argument(
+        "--component-limit",
+        type=int,
+        default=20,
+        help="pool 模式下每个行业最多读取多少只当前申万成分股。",
+    )
 
     # Legacy stock-screen arguments are intentionally kept so previous commands
     # still work when the caller explicitly chooses --mode legacy-stock.
@@ -118,7 +132,10 @@ def main() -> int:
     parser.add_argument(
         "--allow-historical-membership",
         action="store_true",
-        help=argparse.SUPPRESS,
+        help=(
+            "允许 pool/legacy-stock 在历史日期使用当前申万成分信息；"
+            "仅调试用，会引入幸存者偏差。"
+        ),
     )
 
     args = parser.parse_args()
@@ -143,6 +160,48 @@ def main() -> int:
 
     if args.mode == "legacy-stock":
         return _legacy_stock_mode(args)
+
+    if args.mode == "pool":
+        result = run_research_pool(
+            args.date,
+            sector_top_n=args.top,
+            representatives_per_sector=args.representatives_per_sector,
+            component_limit=args.component_limit,
+            strict_pit=not args.allow_historical_membership,
+            ml_model_path=args.ml_model,
+            ml_weight=args.ml_weight,
+        )
+        print(
+            f"Market Regime: {result.discovery.market.regime} | "
+            f"score={result.discovery.market.score:.1f}/100"
+        )
+        print("\nSector Research Shortlist：")
+        _print_frame(result.discovery.sectors.sectors, args.top)
+        print("\nRepresentative Research Entries：")
+        shown = result.representatives.representatives.drop(
+            columns=["research_context"],
+            errors="ignore",
+        )
+        _print_frame(
+            shown,
+            args.top * args.representatives_per_sector,
+        )
+        if args.output:
+            out = Path(args.output)
+        else:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out = (
+                PROJECT_ROOT
+                / "reports"
+                / f"research_pool_{args.date.replace('-', '')}_{stamp}"
+            )
+        report = write_research_pool_report(result, out)
+        print(f"\n已保存：{report}")
+        print(
+            "代表股只是研究入口，不是买入推荐。CSV 中的 research_context "
+            "可传给 /analyze 的 candidate_context，让 7-Agent 知道研究来源。"
+        )
+        return 0
 
     result = run_discovery(
         args.date,
@@ -201,8 +260,8 @@ def main() -> int:
     report = write_discovery_report(result, out)
     print(f"\n已保存：{report}")
     print(
-        "下一步：从 Top 行业中选代表性股票，再运行 "
-        "python -m cli.main analyze 做 7-Agent 单股研究。"
+        "下一步：可运行 --mode pool 自动生成代表性 Research Entries，"
+        "再交给 7-Agent 单股研究。"
     )
     return 0
 
