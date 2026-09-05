@@ -3,6 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.evidence_claims import claim_boundary_instruction
 
 from tradingagents.agents.utils.agent_utils import (
+    get_candidate_context_from_state,
     get_indicators,
     get_instrument_context_from_state,
     get_language_instruction,
@@ -16,6 +17,7 @@ def create_market_analyst(llm, tools=None):
     def market_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = get_instrument_context_from_state(state)
+        candidate_context = get_candidate_context_from_state(state)
 
         active_tools = tools or [
             get_stock_data,
@@ -79,6 +81,7 @@ Write a very detailed and nuanced report of the trends you observe. Provide spec
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in active_tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
+        prompt = prompt.partial(candidate_context=candidate_context)
 
         chain = prompt | llm.bind_tools(active_tools)
 
