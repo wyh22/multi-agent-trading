@@ -1,5 +1,5 @@
-# A 股自动投研 Agent
-### Multi-Agent A-Share Research & Candidate Discovery System
+# A 股 Agentic Research System
+### Conversation-first A-Share Research, Evidence Retrieval & Audited Multi-Agent Workflow
 
 [![CI](https://github.com/wyh22/multi-agent-trading/actions/workflows/ci.yml/badge.svg)](https://github.com/wyh22/multi-agent-trading/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue)
@@ -8,8 +8,8 @@
 ![Docker](https://img.shields.io/badge/Deploy-Docker-2496ed)
 ![License](https://img.shields.io/badge/License-Apache--2.0-green)
 
-> 基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 二次开发的 A 股多智能体投研系统。  
-> 项目聚焦 **行业发现 → 代表性个股研究 → 证据约束研判 → 独立审计 → 工程评测**，不执行自动交易，不构成投资建议。
+> 基于 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 二次开发的 A 股 Agentic Research System。  
+> 项目采用 **Conversation-first Supervisor + deterministic finance workflow + Tool-using Analysts + Shared RAG + Audit-driven Repair**：简单问题不强制跑完整多 Agent，复杂研究才进入 Deep Research Skill；不执行自动交易，不构成投资建议。
 
 ## 30 秒看懂这个项目
 
@@ -19,10 +19,12 @@
 
 - 用确定性 Python 完成 **A 股行业发现与 Style Ranking**，Market Regime 只调整 Momentum / Value / Dividend / Liquidity 权重，不再通过 Top 行业硬门控个股；Top-K 行业之后再用行业权重、流动性、行业内相对强弱和数据完整性选择 Representative Research Entries；
 - 用 **Point-in-Time（PIT）数据约束**限制历史时点可见信息，降低未来数据泄漏；
-- 将原始多轮链路裁剪为 **7-Agent 并行 LangGraph**，分析师与 Bull/Bear 两阶段 Fan-Out/Fan-In；
+- 使用 **Conversation-first Supervisor** 根据用户对话动态选择原子 Tool、Market/News/Fundamentals 专业 Agent、任务 Skill 或完整 Deep Research；固定 7-role Graph 不再是所有请求的默认入口；
+- 完整研究仍保留两阶段 Fan-Out/Fan-In，并把它包装成高成本 `deep_stock_research` Skill；
 - 在 Agent 之间引入 **Claim-aware Context Compression**：将证据显式区分为 FACT / CALCULATION / INFERENCE / CONDITIONAL，并按类型与字符预算选择性压缩；
-- 增加 **Decision Auditor**，对最终结论做事实、数字、PIT 与证据一致性检查；
-- 通过 **Finance MCP + Qdrant Hybrid RAG** 标准化工具与知识检索；
+- 增加 **Decision Auditor + targeted repair**：对最终结论做事实、数字、PIT 与证据一致性检查，REVISE 时可定向让 Market / News / Fundamentals 重新取证，再由 PM 重综合；
+- 通过 **Finance MCP + Shared Qdrant Hybrid RAG** 标准化工具与知识检索；RAG 可由 Supervisor、News 和 Fundamentals 共同调用，并支持 PDF / DOCX / TXT / Markdown 摄取；
+- Conversation SQLite 增加 **immutable Research Version + rollback**；LangGraph Checkpoint 继续专门负责 crash resume；
 - 提供 **Agent Evaluation + Outcome Backtest**，把“工程质量”和“市场结果”分开评估；
 - 提供 **FastAPI + 浏览器 Chat UI + Docker Compose**，支持本地服务化运行。
 
@@ -30,16 +32,18 @@
 
 | 模块 | 实现 | 解决的问题 |
 | --- | --- | --- |
-| 7-Agent LangGraph | Market / News / Fundamentals → Bull & Bear → Portfolio Manager → Auditor | 减少重复角色与无效多轮辩论 |
+| Conversation Supervisor | LLM structured routing + deterministic fallback | 按任务复杂度选择 Tool / Specialist Agent / Skill / Deep Research |
+| Deep Research Skill | Market / News / Fundamentals → Bull & Bear → Portfolio Manager → Auditor | 只在复杂综合研究时启用完整多角色图 |
 | 并行执行 | Analyst Subgraph + Fan-Out/Fan-In | 降低串行 Agent 延迟 |
 | Claim-aware Context | FACT / CALCULATION / INFERENCE / CONDITIONAL + deterministic budget compression | 减少重复上下文，并防止推断/条件情景被升级为事实 |
 | A 股行业发现 | Market Regime + Momentum/Value/Dividend/Liquidity Style Rank + 可选 LightGBM | 避免跨行业用同一套个股财务因子硬排名，并把数值排序交给可审计模型 |
 | Representative Pool | 行业权重 + 流动性 + 行业内相对强弱 + 数据完整性 | 从 Top 行业选择 7-Agent 研究入口，不把研究路由伪装成投资评级 |
 | PIT 数据治理 | 披露日/发布日期截止过滤 | 降低未来函数与历史穿越 |
-| Decision Auditor | PASS / REVISE 条件路由 | 检查无依据推断和数字冲突 |
+| Decision Auditor | PASS / REVISE + repair_target | 检查无依据推断，并把缺失证据定向路由给责任 Agent |
 | Finance MCP | Streamable HTTP + Local fallback + allowlist | 解耦 Agent 与金融数据工具 |
-| Hybrid RAG | Qdrant Dense + BM25 + RRF + 可选 Reranker | 为研究结论提供可追溯知识证据 |
-| 多轮会话 | Router + thread_id + SQLite | 复用已审计研究上下文 |
+| Shared Hybrid RAG | Qdrant Dense + BM25 + RRF + 可选 Reranker + PDF/DOCX ingestion | 为多个 Agent 与对话层提供 PIT-safe 可追溯文档证据 |
+| 多轮会话 | Supervisor + thread_id + SQLite | 对话驱动能力选择并复用已审计研究上下文 |
+| Research Rollback | Immutable SQLite research versions | 恢复上一版/指定版本；与 crash checkpoint 分离 |
 | Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |
 | Outcome Backtest | Rating vs. realized / benchmark return | 将“研究质量评估”和“市场结果评估”分离 |
 | 服务化 | FastAPI / Chat UI / Docker Compose | 提升可复现性和演示效率 |
@@ -58,7 +62,13 @@ flowchart TD
     B --> C[Top-K Sector Research Shortlist]
     C --> C1[Representative Research Pool]
     C1 --> C2[Index Weight / Liquidity / Relative Strength / Data Coverage]
-    C2 --> D{LangGraph Research}
+    U[User Conversation] --> S{Conversation Supervisor}
+    S -->|simple fact| T[Atomic Tools]
+    S -->|single domain| SA[Specialist Analyst]
+    S -->|reusable task| SK[Skill]
+    S -->|complex research| D[Deep Research Skill]
+
+    C2 --> S
     D --> M[Market Analyst]
     D --> N[News & Sentiment Analyst]
     D --> F[Fundamentals Analyst]
@@ -66,19 +76,26 @@ flowchart TD
     M --> X[Analyst Fan-In]
     N --> X
     F --> X
-
     X --> BU[Bull Researcher]
     X --> BE[Bear Researcher]
     BU --> Y[Research Fan-In]
     BE --> Y
-
     Y --> PM[Portfolio Manager]
     PM --> AU[Decision Auditor]
-    AU -->|PASS| E[Final Research Report]
-    AU -->|REVISE, limited rounds| PM
+    AU -->|PASS| E[Versioned Research Report]
+    AU -->|market repair| RM[Market Re-evidence]
+    AU -->|news/RAG repair| RN[News Re-evidence]
+    AU -->|financial repair| RF[Fundamentals Re-evidence]
+    AU -->|synthesis repair| PM
+    RM --> PM
+    RN --> PM
+    RF --> PM
 
-    R[(Qdrant Hybrid RAG)] --> N
-    MCP[Finance MCP Server] --> M
+    R[(Shared Qdrant Hybrid RAG)] --> S
+    R --> N
+    R --> F
+    MCP[Finance MCP Server] --> T
+    MCP --> M
     MCP --> N
     MCP --> F
 ```
@@ -95,8 +112,8 @@ flowchart TD
 | 历史研究 | 依赖数据源行为 | 显式 PIT 截止规则与日期守卫 |
 | 最终决策 | 研究链路汇总 | 独立 Decision Auditor，可触发修订 |
 | 工具集成 | 本地工具为主 | MCP Server + Client fallback + 外部工具 allowlist |
-| 知识检索 | 非核心 | Qdrant Dense + BM25 + RRF + PIT filter |
-| 交互 | CLI 为主 | 多轮 Conversation Router + SQLite + Web Chat |
+| 知识检索 | 非核心 | Shared Qdrant Dense + BM25 + RRF + PIT filter + PDF/DOCX ingestion |
+| 交互 | CLI 为主 | Conversation-first Supervisor + SQLite + Web Chat + Research Version Rollback |
 | 评估 | 以功能验证为主 | Agent Evaluation + Outcome Backtest |
 | 部署 | 本地执行 | FastAPI + Docker Compose |
 | 验证 | 上游测试 | Agent / RAG / MCP / PIT / Conversation / Evaluation 回归测试 |
@@ -252,9 +269,12 @@ multi-agent-trading/
 │   ├── agents/          # Analysts / Researchers / Manager / Auditor
 │   ├── graph/           # LangGraph、Subgraph、Fan-In/Fan-Out
 │   ├── discovery/       # 行业发现、Style Rank、Representative Pool、可选 LightGBM、legacy 股票筛选
-│   ├── conversation/    # 多轮会话路由与状态
+│   ├── conversation/    # 多轮会话、研究版本与 rollback
+│   ├── orchestration/   # Conversation Supervisor / Specialist executor
+│   ├── capabilities/    # Tool / Agent / Skill capability registry
+│   ├── skills/          # 声明式 Skill manifests
 │   ├── mcp/             # Finance MCP Server / adapters
-│   ├── rag/             # Qdrant Hybrid RAG
+│   ├── rag/             # Shared Qdrant Hybrid RAG + PDF/DOCX/TXT/MD ingestion
 │   ├── evaluation/      # Agent 轨迹、PIT、工具调用与报告质量评测
 │   ├── backtest/        # 评级与实际/基准收益结果评估
 │   └── dataflows/       # 行情、财务、公告、宏观等数据适配
@@ -360,7 +380,7 @@ Portfolio Manager 负责形成最终观点，本身不适合作为自己的校�
 - 评级是否与证据方向冲突；
 - 是否存在前后数字不一致。
 
-若发现实质问题，可通过 LangGraph 条件边触发有限次数修订。
+若发现实质问题，Auditor 会输出结构化 `issue_type / repair_target / instruction`。行情问题可回到 Market，公告/RAG 问题回到 News，财务问题回到 Fundamentals 重新取证；只有纯综合问题才直接交给 Portfolio Manager 修订。所有修复仍受最大审计轮次限制。
 
 ### 为什么单独做 Agent Evaluation
 
@@ -380,7 +400,7 @@ ticker == target
 publish_date <= as_of_date
 ```
 
-并在向量检索之后再次做日期防御性检查。
+并在向量检索之后再次做日期防御性检查。V1.5 将 RAG 升级为共享 Knowledge Capability，News、Fundamentals 与 Conversation Supervisor 都可按权限调用；用户文档可通过 `/knowledge/upload` 摄取 PDF、DOCX、TXT 与 Markdown，其中 PDF chunk 保留页码元数据。
 
 ## 数据源边界
 
@@ -409,6 +429,7 @@ publish_date <= as_of_date
 - [ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)：设计取舍、代码所有权边界、面向工程评审的实现说明
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
 - [MCP_RAG_DOCKER_GUIDE.md](MCP_RAG_DOCKER_GUIDE.md)：MCP、Qdrant Hybrid RAG、Docker
+- [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback
 - [V1.4_VALIDATION.md](V1.4_VALIDATION.md)：当前离线验证边界
 
 ## 二次开发与许可证
