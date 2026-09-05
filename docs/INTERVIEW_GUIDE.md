@@ -1464,24 +1464,24 @@ uvicorn service.app:app --host 0.0.0.0 --port 8000
 
 如果面试前只有 20 分钟：
 
-1. \`tradingagents/discovery/pipeline.py\`
-2. \`tradingagents/discovery/sectors.py\`
-3. \`tradingagents/discovery/representatives.py\`
-4. \`tradingagents/graph/setup.py\`
-5. \`tradingagents/graph/analyst_subgraph.py\`
-6. \`tradingagents/agents/analysts/market_analyst.py\`
-7. \`tradingagents/agents/analysts/news_analyst.py\`
-8. \`tradingagents/agents/analysts/fundamentals_analyst.py\`
-9. \`tradingagents/agents/researchers/bull_researcher.py\`
-10. \`tradingagents/agents/researchers/bear_researcher.py\`
-11. \`tradingagents/agents/managers/portfolio_manager.py\`
-12. \`tradingagents/agents/auditors/decision_auditor.py\`
-13. \`tradingagents/agents/utils/evidence_claims.py\`
-14. \`tradingagents/agents/utils/context_compaction.py\`
-15. \`tradingagents/agents/utils/tool_registry.py\`
-16. \`tradingagents/rag/retriever.py\`
-17. \`tradingagents/conversation/agent.py\`
-18. \`tradingagents/evaluation/\`
+1. `tradingagents/discovery/pipeline.py`
+2. `tradingagents/discovery/sectors.py`
+3. `tradingagents/discovery/representatives.py`
+4. `tradingagents/graph/setup.py`
+5. `tradingagents/graph/analyst_subgraph.py`
+6. `tradingagents/agents/analysts/market_analyst.py`
+7. `tradingagents/agents/analysts/news_analyst.py`
+8. `tradingagents/agents/analysts/fundamentals_analyst.py`
+9. `tradingagents/agents/researchers/bull_researcher.py`
+10. `tradingagents/agents/researchers/bear_researcher.py`
+11. `tradingagents/agents/managers/portfolio_manager.py`
+12. `tradingagents/agents/auditors/decision_auditor.py`
+13. `tradingagents/agents/utils/evidence_claims.py`
+14. `tradingagents/agents/utils/context_compaction.py`
+15. `tradingagents/agents/utils/tool_registry.py`
+16. `tradingagents/rag/retriever.py`
+17. `tradingagents/conversation/agent.py`
+18. `tradingagents/evaluation/`
 
 ---
 
