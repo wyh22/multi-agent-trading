@@ -735,20 +735,52 @@ class ConversationAgent:
         }
         if version_payload and version_payload.get("kind") == "research_version":
             payload = dict(version_payload.get("payload", {}) or {})
+            previous = self.store.get_active_research_version(tid)
+            audit_status = str(payload.get("audit_status", "") or "")
             version_id = self.store.save_research_version(
                 tid,
                 payload,
-                audit_status=str(payload.get("audit_status", "") or ""),
+                audit_status=audit_status,
             )
             metadata["active_research_version_id"] = version_id
-            self.store.update_context(
-                tid,
-                current_ticker=resolved_ticker,
-                as_of_date=cutoff,
-                last_intent=route,
-                research_context=str(payload.get("research_context", "") or ""),
-                metadata=metadata,
-            )
+
+            # A failed repair is still persisted for auditability, but it must
+            # not silently replace a previously PASSed conclusion.
+            if (
+                audit_status.upper() != "PASS"
+                and previous is not None
+                and str(previous.get("audit_status", "")).upper() == "PASS"
+            ):
+                restored = self.store.rollback_research_version(
+                    tid,
+                    version_id=int(previous["id"]),
+                )
+                if restored is not None:
+                    metadata["active_research_version_id"] = int(restored["id"])
+                    previous_payload = dict(restored.get("payload", {}) or {})
+                    previous_decision = str(
+                        previous_payload.get("final_trade_decision", "") or ""
+                    )
+                    answer = (
+                        f"本轮研究版本 V{version_id} 在最大返修轮次后仍未通过审计，"
+                        f"已保留该版本用于追踪，并自动回滚到最近通过审计的 V{restored['id']}。"
+                        + (f"\n\n{previous_decision}" if previous_decision else "")
+                    )
+                # rollback_research_version already restored thread context.
+                self.store.update_context(
+                    tid,
+                    last_intent="auto_rollback",
+                    metadata=metadata,
+                )
+            else:
+                self.store.update_context(
+                    tid,
+                    current_ticker=resolved_ticker,
+                    as_of_date=cutoff,
+                    last_intent=route,
+                    research_context=str(payload.get("research_context", "") or ""),
+                    metadata=metadata,
+                )
         else:
             if version_payload and version_payload.get("kind") == "context_metadata":
                 metadata.update(
