@@ -179,3 +179,18 @@ def test_unapproved_research_does_not_enter_long_term_memory():
     assert 'if audit_status == "PASS":' in source
     assert 'else "REVIEW"' in source
     assert "self.memory_log.store_decision" in source
+
+
+def test_conversation_supervisor_loop_is_bounded_and_observation_driven():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "tradingagents"
+        / "conversation"
+        / "agent.py"
+    ).read_text(encoding="utf-8")
+    assert 'conversation_supervisor_steps' in source
+    assert 'observations=observations' in source
+    assert 'used_capabilities=used_capabilities' in source
+    assert '"supervisor:repeat_guard"' in source
+    assert '"supervisor:step_limit"' in source
+    assert '"supervisor_trace": supervisor_trace' in source
