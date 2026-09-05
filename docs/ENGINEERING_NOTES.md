@@ -75,7 +75,7 @@ Representative Score
 
 没有 PE/PB、ROE、利润增速或 Quality Score。这样避免刚修掉 Sector hard gate 后，又在桥接层重新引入一套隐藏的跨行业选股逻辑。
 
-每个 Representative Entry 会生成 \`research_context\`，作为 \`candidate_context\` 进入 LangGraph。该上下文只解释研究来源，并带有明确 anti-confirmation-bias guard；最终评级仍必须来自 Analyst Tool Evidence。Checkpoint signature 还包含该 context 的 hash，避免同 ticker/date 在不同研究先验下错误 resume。
+每个 Representative Entry 会生成 `research_context`，作为 `candidate_context` 进入 LangGraph。该上下文只解释研究来源，并带有明确 anti-confirmation-bias guard；最终评级仍必须来自 Analyst Tool Evidence。Checkpoint signature 还包含该 context 的 hash，避免同 ticker/date 在不同研究先验下错误 resume。
 
 ## 5. 为什么重构 Agent 拓扑
 
