@@ -28,10 +28,7 @@ class AnalyzeRequest(BaseModel):
 
 class DiscoveryRequest(BaseModel):
     as_of_date: str = Field(default_factory=lambda: date.today().isoformat())
-    sector_count: int = 4
-    per_sector: int = 35
-    top_n: int = 10
-    strict_pit: bool = True
+    top_n: int = Field(default=6, ge=1, le=31)
 
 
 class ChatRequest(BaseModel):
@@ -86,17 +83,17 @@ def discover(req: DiscoveryRequest):
     try:
         result = run_discovery(
             req.as_of_date,
-            sector_count=req.sector_count,
-            per_sector=req.per_sector,
             top_n=req.top_n,
-            strict_pit=req.strict_pit,
+            ml_model_path=DEFAULT_CONFIG.get("sector_ml_model_path") or None,
+            ml_weight=float(DEFAULT_CONFIG.get("sector_ml_weight", 0.5)),
         )
         return {
             "as_of_date": result.as_of_date,
             "market_regime": result.market.regime,
             "market_score": result.market.score,
-            "candidates": result.stocks.candidates.to_dict(orient="records"),
-            "sector_quotas": result.stocks.sector_quotas,
+            "rank_source": result.metadata.get("rank_source", "rule"),
+            "style_weights": result.metadata.get("style_weights", {}),
+            "sectors": result.sectors.sectors.to_dict(orient="records"),
         }
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
