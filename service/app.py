@@ -3,9 +3,10 @@ from __future__ import annotations
 import functools
 from pathlib import Path
 from datetime import date
+import tempfile
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -13,6 +14,7 @@ from tradingagents.conversation import ConversationAgent, ConversationStore
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.discovery.pipeline import run_discovery, run_research_pool
 from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.rag.ingestion import ingest_path
 
 app = FastAPI(title="TradingAgents A-share Agent API", version="1.4")
 app.mount("/ui", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="chat-ui")
@@ -45,6 +47,13 @@ class ResearchPoolRequest(BaseModel):
     representatives_per_sector: int = Field(default=2, ge=1, le=5)
     component_limit: int = Field(default=20, ge=2, le=100)
     strict_pit: bool = True
+
+
+class RollbackRequest(BaseModel):
+    version_id: int | None = Field(
+        default=None,
+        description="为空时回滚到当前版本的直接父版本。",
+    )
 
 
 class ChatRequest(BaseModel):
@@ -180,3 +189,92 @@ def reset_chat(thread_id: str):
     if not deleted:
         raise HTTPException(status_code=404, detail="thread not found")
     return {"status": "deleted", "thread_id": thread_id}
+
+
+@app.get("/chat/{thread_id}/versions")
+def research_versions(thread_id: str, limit: int = 20):
+    store = _conversation_store()
+    if store.get_thread(thread_id) is None:
+        raise HTTPException(status_code=404, detail="thread not found")
+    return {
+        "thread_id": thread_id,
+        "versions": store.list_research_versions(
+            thread_id,
+            limit=max(1, min(int(limit), 100)),
+        ),
+    }
+
+
+@app.post("/chat/{thread_id}/rollback")
+def rollback_research(thread_id: str, req: RollbackRequest):
+    store = _conversation_store()
+    if store.get_thread(thread_id) is None:
+        raise HTTPException(status_code=404, detail="thread not found")
+    restored = store.rollback_research_version(
+        thread_id,
+        version_id=req.version_id,
+    )
+    if restored is None:
+        raise HTTPException(
+            status_code=409,
+            detail="no matching previous research version to restore",
+        )
+    return {
+        "thread_id": thread_id,
+        "active_version": restored,
+    }
+
+
+@app.post("/knowledge/upload")
+async def upload_knowledge(
+    file: UploadFile = File(...),
+    ticker: str = Form(...),
+    publish_date: str = Form(...),
+    doc_type: str = Form("user_document"),
+):
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in {".pdf", ".docx", ".txt", ".md", ".markdown"}:
+        raise HTTPException(
+            status_code=400,
+            detail="supported formats: pdf, docx, txt, md",
+        )
+
+    max_bytes = int(DEFAULT_CONFIG.get("knowledge_upload_max_mb", 25)) * 1024 * 1024
+    payload = await file.read(max_bytes + 1)
+    if len(payload) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"file exceeds {max_bytes // (1024 * 1024)} MB limit",
+        )
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix,
+            prefix="tradingagents_knowledge_",
+            delete=False,
+        ) as handle:
+            handle.write(payload)
+            temp_path = Path(handle.name)
+        result = ingest_path(
+            temp_path,
+            ticker=ticker,
+            publish_date=publish_date,
+            config=DEFAULT_CONFIG,
+            doc_type=doc_type,
+        )
+        return {
+            "status": "indexed",
+            "filename": file.filename,
+            **result,
+        }
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
