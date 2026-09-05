@@ -32,7 +32,7 @@
 
 | 模块 | 实现 | 解决的问题 |
 | --- | --- | --- |
-| Conversation Supervisor | LLM structured routing + deterministic fallback | 按任务复杂度选择 Tool / Specialist Agent / Skill / Deep Research |
+| Conversation Supervisor | LLM structured routing + bounded Decide→Execute→Observe→Re-decide + deterministic fallback | 按任务复杂度动态组合 Tool / Specialist Agent / Skill / Deep Research |
 | Deep Research Skill | Market / News / Fundamentals → Bull & Bear → Portfolio Manager → Auditor | 只在复杂综合研究时启用完整多角色图 |
 | 并行执行 | Analyst Subgraph + Fan-Out/Fan-In | 降低串行 Agent 延迟 |
 | Claim-aware Context | FACT / CALCULATION / INFERENCE / CONDITIONAL + deterministic budget compression | 减少重复上下文，并防止推断/条件情景被升级为事实 |
@@ -261,7 +261,7 @@ curl -X POST http://localhost:8000/chat \
   }'
 ```
 
-`mode=auto` 默认由 Conversation Supervisor 选择最小必要能力。简单事实查询可直接走 Tool，单领域复杂问题可委派专业 Analyst，只有完整综合研究才进入 `deep_stock_research` Skill。
+`mode=auto` 默认由 Conversation Supervisor 选择最小必要能力。对原子 Tool / 专业 Analyst，Supervisor 最多进行 3 步有界 `Decide → Execute → Observe → Re-decide`，可按证据缺口追加一个互补能力；重复 capability 会被阻止。完整 Skill / Deep Research / Rollback 是终止动作，避免无界自治循环。
 
 ### 上传 PDF / DOCX 到共享 RAG
 
