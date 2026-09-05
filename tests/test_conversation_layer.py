@@ -36,3 +36,13 @@ def test_external_mcp_tools_require_allowlist_in_conversation_layer():
     source=(Path(__file__).resolve().parents[1]/"tradingagents"/"conversation"/"agent.py").read_text(encoding="utf-8")
     assert "external_mcp_tool_allowlist" in source
     assert "tool.name in allowlist" in source
+
+
+def test_router_recognizes_sector_and_representative_pool_requests():
+    assert route_message("帮我看看值得关注的行业").intent=="discovery"
+    assert route_message("给我每个行业的代表股").intent=="discovery"
+
+def test_fastapi_exposes_research_pool_and_candidate_context_handoff():
+    source=(Path(__file__).resolve().parents[1]/"service"/"app.py").read_text(encoding="utf-8")
+    assert '@app.post("/research-pool")' in source
+    assert "candidate_context" in source
