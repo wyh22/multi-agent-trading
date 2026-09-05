@@ -61,7 +61,23 @@ LightGBM 只是可插拔二阶段 Ranker，Rule Score 永远保留用于解释�
 
 详细设计见 `docs/SECTOR_DISCOVERY.md`。
 
-## 4. 为什么重构 Agent 拓扑
+## 4. 为什么 Representative Pool 只负责研究路由
+
+Sector Discovery 输出的是行业研究优先级，但现有 7-Agent 是单股研究图，因此中间需要一个低成本桥接层。该层不再做“哪只股票最好”的统一质量评分，而是只选择行业内适合投入深度研究预算的代表性公司：
+
+~~~text
+Representative Score
+= 35% 行业指数权重
++ 30% 流动性
++ 20% 行业内相对强弱
++ 15% 数据完整性
+~~~
+
+没有 PE/PB、ROE、利润增速或 Quality Score。这样避免刚修掉 Sector hard gate 后，又在桥接层重新引入一套隐藏的跨行业选股逻辑。
+
+每个 Representative Entry 会生成 \`research_context\`，作为 \`candidate_context\` 进入 LangGraph。该上下文只解释研究来源，并带有明确 anti-confirmation-bias guard；最终评级仍必须来自 Analyst Tool Evidence。Checkpoint signature 还包含该 context 的 hash，避免同 ticker/date 在不同研究先验下错误 resume。
+
+## 5. 为什么重构 Agent 拓扑
 
 原始多角色链路存在大量相近上下文的重复读取与自然语言复述。随着中间报告增多，Token 和延迟都会累积，同时错误事实也可能在角色之间继续传播。
 
@@ -89,7 +105,7 @@ Fund. ──┘                   └─> Bear ─┼─> Portfolio Manager ─>
 - `tradingagents/graph/analyst_subgraph.py`
 - `tradingagents/agents/auditors/decision_auditor.py`
 
-## 5. Point-in-Time：历史研究最重要的数据约束
+## 6. Point-in-Time：历史研究最重要的数据约束
 
 历史研究不能使用“今天已经知道、但当时尚未披露”的信息。
 
@@ -103,7 +119,7 @@ Fund. ──┘                   └─> Bear ─┼─> Portfolio Manager ─>
 
 这是本项目比“让多个 Agent 讨论股票”更重要的工程点之一。
 
-## 6. Hybrid RAG 的检索路径
+## 7. Hybrid RAG 的检索路径
 
 当前 RAG 采用：
 
@@ -125,7 +141,7 @@ Top-K evidence
 
 这里选择 Hybrid Retrieval 的原因是：金融文档同时包含自然语言语义和大量股票代码、指标名、公告术语。仅向量检索容易弱化精确关键词，仅 BM25 又缺乏语义召回。
 
-## 7. MCP 的作用不是“为了用 MCP”
+## 8. MCP 的作用不是“为了用 MCP”
 
 Finance MCP 的主要价值是把金融工具从 Agent 运行时解耦出来：
 
@@ -140,7 +156,7 @@ Finance MCP 的主要价值是把金融工具从 Agent 运行时解耦出来：
 - `tradingagents/mcp/client.py`
 - `tradingagents/agents/utils/tool_registry.py`
 
-## 8. 为什么增加独立 Decision Auditor
+## 9. 为什么增加独立 Decision Auditor
 
 如果 Portfolio Manager 同时负责生成和验证最终结论，本质上仍然是“自己检查自己”。
 
@@ -154,7 +170,7 @@ Auditor 的提示词明确限制：
 
 这种设计不能消灭 LLM 错误，但能把“结论生成”和“结论校验”拆成两个职责。
 
-## 9. 多轮会话为什么复用已审计上下文
+## 10. 多轮会话为什么复用已审计上下文
 
 普通追问不应该每次都重新运行完整研究图。
 
@@ -175,7 +191,7 @@ Router 决定用户请求属于：
 
 对于普通追问，优先复用上一轮已审计结果，避免重复成本和上下文漂移。
 
-## 10. 可复现性
+## 11. 可复现性
 
 仓库提供三层运行方式：
 
@@ -192,7 +208,7 @@ pytest -q
 
 并额外执行 Docker image build，防止 Dockerfile 与仓库目录结构漂移。
 
-## 11. 当前验证边界
+## 12. 当前验证边界
 
 离线回归测试数量会随功能增加而变化，因此不再把历史固定的 `55 passed, 1 skipped` 当作当前状态。当前状态以 GitHub Actions 的 Python 3.11/3.12、Compile、Import Smoke、Pytest 与 Docker Build 为准。
 
@@ -205,21 +221,21 @@ pytest -q
 
 因此 README 中没有把单元测试结果包装成“生产可用”结论。
 
-## 12. 代码评审时建议重点阅读
+## 13. 代码评审时建议重点阅读
 
 如果只阅读 15 分钟，建议按以下顺序：
 
 1. `tradingagents/graph/setup.py`：理解 7-Agent 主拓扑；
 2. `tradingagents/graph/analyst_subgraph.py`：理解私有 Analyst Subgraph；
 3. `tradingagents/discovery/pipeline.py`：理解 Sector-first Discovery；
-4. `tradingagents/discovery/sectors.py` / `sector_ranker.py`：理解 Style Rank 与可选 LightGBM；
+4. `tradingagents/discovery/sectors.py` / `representatives.py` / `sector_ranker.py`：理解 Style Rank 与可选 LightGBM；
 5. `tradingagents/agents/auditors/decision_auditor.py`：理解独立审计；
 6. `tradingagents/rag/retriever.py`：理解 Hybrid + PIT；
 7. `tradingagents/mcp/server.py`：理解工具协议层；
 8. `tradingagents/conversation/agent.py`：理解会话路由；
 9. `service/app.py`：理解服务接口。
 
-## 13. Claim-aware Context Compression
+## 14. Claim-aware Context Compression
 
 旧实现只按字符预算保留报告头尾，虽然能限制上下文长度，但无法区分“直接证据”和“模型解释”。当前实现增加显式 Claim 层：
 
@@ -246,7 +262,7 @@ Bull / Bear → Portfolio Manager → Auditor
 
 压缩优先级不是“置信度评分”。FACT / CALCULATION 获得更高预算优先级是因为它们构成 Grounding 层；INFERENCE 仍可保留，但不得被下游重述为事实；CONDITIONAL 必须保留原始触发条件。若旧报告没有显式标签，则使用保守的确定性规则兜底，因此该能力不会为了压缩再新增一次 LLM 调用。
 
-## 14. 下一阶段可以继续量化的指标
+## 15. 下一阶段可以继续量化的指标
 
 后续最值得补的不是继续增加 Agent 数量，而是把工程收益量化：
 
