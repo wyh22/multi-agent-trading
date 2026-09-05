@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from tradingagents.agents.schemas import AuditResult, render_audit_result
+from tradingagents.agents.utils.agent_utils import get_candidate_context_from_state
 from tradingagents.agents.utils.context_compaction import build_decision_context, compact_text
 from tradingagents.agents.utils.evidence_claims import claim_usage_instruction
 from tradingagents.agents.utils.structured import NO_EXTERNAL_TOOLS, bind_structured
@@ -35,11 +36,14 @@ def create_decision_auditor(llm):
         trade_date = state["trade_date"]
         final_decision = compact_text(state.get("final_trade_decision", ""), 2600)
         evidence_context = build_decision_context(state)
+        candidate_context = get_candidate_context_from_state(state)
         current_round = int(state.get("audit_round", 0) or 0) + 1
 
         prompt = f"""
 你是独立的决策审计智能体。你不负责提出新的投资观点，只负责检查最终结论。
 研究截止日为 `{trade_date}`。
+
+{candidate_context}
 
 ## 上游证据
 {evidence_context}
@@ -52,7 +56,8 @@ def create_decision_auditor(llm):
 2. 是否出现截止日之后的信息或把报告期误当披露日；
 3. 是否把推断写成事实，或给出无证据的因果关系、价格目标、行业地位等；
 4. 最终评级是否与核心证据方向明显矛盾；
-5. 是否存在同一指标前后数值冲突。
+5. 是否存在同一指标前后数值冲突；
+6. 是否把行业发现得分、Style 标签或代表股选择原因误写成公司投资事实或评级依据。
 
 判定规则：
 - 轻微措辞问题可以 PASS；

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from tradingagents.conversation import ConversationAgent, ConversationStore
 from tradingagents.default_config import DEFAULT_CONFIG
-from tradingagents.discovery.pipeline import run_discovery
+from tradingagents.discovery.pipeline import run_discovery, run_research_pool
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 
 app = FastAPI(title="TradingAgents A-share Agent API", version="1.4")
@@ -24,11 +24,27 @@ class AnalyzeRequest(BaseModel):
     analysts: list[Literal["market", "news", "fundamentals"]] = Field(
         default_factory=lambda: ["market", "news", "fundamentals"]
     )
+    candidate_context: str | None = Field(
+        default=None,
+        max_length=3000,
+        description=(
+            "可选的行业发现/代表股研究来源。仅作为研究路由先验，"
+            "不会被 Agent 当作投资事实。"
+        ),
+    )
 
 
 class DiscoveryRequest(BaseModel):
     as_of_date: str = Field(default_factory=lambda: date.today().isoformat())
     top_n: int = Field(default=6, ge=1, le=31)
+
+
+class ResearchPoolRequest(BaseModel):
+    as_of_date: str = Field(default_factory=lambda: date.today().isoformat())
+    sector_top_n: int = Field(default=4, ge=1, le=31)
+    representatives_per_sector: int = Field(default=2, ge=1, le=5)
+    component_limit: int = Field(default=20, ge=2, le=100)
+    strict_pit: bool = True
 
 
 class ChatRequest(BaseModel):
@@ -65,7 +81,11 @@ def health():
 def analyze(req: AnalyzeRequest):
     try:
         graph = TradingAgentsGraph(selected_analysts=tuple(req.analysts), config=DEFAULT_CONFIG)
-        state, signal = graph.propagate(req.ticker, req.trade_date)
+        state, signal = graph.propagate(
+            req.ticker,
+            req.trade_date,
+            candidate_context=req.candidate_context or "",
+        )
         return {
             "ticker": req.ticker,
             "trade_date": req.trade_date,
@@ -97,6 +117,38 @@ def discover(req: DiscoveryRequest):
         }
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
+
+
+@app.post("/research-pool")
+def research_pool(req: ResearchPoolRequest):
+    try:
+        result = run_research_pool(
+            req.as_of_date,
+            sector_top_n=req.sector_top_n,
+            representatives_per_sector=req.representatives_per_sector,
+            component_limit=req.component_limit,
+            strict_pit=req.strict_pit,
+            ml_model_path=DEFAULT_CONFIG.get("sector_ml_model_path") or None,
+            ml_weight=float(DEFAULT_CONFIG.get("sector_ml_weight", 0.5)),
+        )
+        return {
+            "as_of_date": result.as_of_date,
+            "market_regime": result.discovery.market.regime,
+            "market_score": result.discovery.market.score,
+            "rank_source": result.discovery.metadata.get("rank_source", "rule"),
+            "sectors": result.discovery.sectors.sectors.to_dict(orient="records"),
+            "representatives": (
+                result.representatives.representatives.to_dict(orient="records")
+            ),
+            "warnings": result.representatives.warnings,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @app.post("/chat")

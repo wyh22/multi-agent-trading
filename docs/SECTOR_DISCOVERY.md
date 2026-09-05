@@ -335,3 +335,35 @@ Top-K sectors
 推荐回答：
 
 > 第一版是 Sector-first 股票筛选，优点是简单、确定性强，但实际运行后我发现它会产生 hard gating 和双重行业暴露，而且银行、科技、高股息资产并不适合用一套个股财务模型直接横向排名。所以我把 Discovery 重新定义为行业研究优先级问题：全量申万一级行业先计算 Momentum、Value、Dividend、Liquidity 四类 Style Score，Market Regime 只动态调整 Style 权重；同时保留一个可选 LightGBM 横截面 Ranker，Rule Score 永远保留用于可解释性和 fallback。Top-K 行业之后再选择代表性股票进入 7-Agent 深度研究。
+
+
+---
+
+## 12. Representative Research Pool
+
+Sector Discovery 主输出仍然是行业，不会把 Top-K 行业直接解释为股票推荐。为了接入单股 7-Agent，新增：
+
+~~~text
+tradingagents/discovery/representatives.py
+~~~
+
+评分：
+
+~~~text
+35% SW index weight
+30% 20-day average trading amount
+20% within-sector 20/60-day relative strength
+15% data coverage
+~~~
+
+这里不使用 PE/PB、ROE、利润增速或旧 Quality Score，因此它只回答：
+
+> 哪些公司更适合作为这个行业的深度研究入口？
+
+而不是：
+
+> 哪些公司最值得买？
+
+严格 PIT 下，Representative Pool 依赖申万当前成分数据，因此历史日期超过最近交易窗口时会主动拒绝，避免用当前成分回填历史产生 survivor bias。
+
+每条代表股记录附带 `research_context`。它进入 7-Agent 后被标记为 selection prior / NOT evidence，Analyst 仍必须重新调用市场、新闻和基本面工具验证，Auditor 也检查是否把候选来源升级成投资事实。

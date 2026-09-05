@@ -18,6 +18,7 @@ class Propagator:
         asset_type: str = "stock",
         past_context: str = "",
         instrument_context: str = "",
+        candidate_context: str = "",
     ) -> dict[str, Any]:
         """创建一次单股深度研究的初始状态。"""
 
@@ -26,6 +27,7 @@ class Propagator:
             "company_of_interest": company_name,
             "asset_type": asset_type,
             "instrument_context": instrument_context,
+            "candidate_context": candidate_context,
             "trade_date": str(trade_date),
             "sender": "",
             "past_context": past_context,

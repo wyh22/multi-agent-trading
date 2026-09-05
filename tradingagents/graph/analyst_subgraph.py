@@ -17,6 +17,7 @@ class AnalystSubState(MessagesState):
     company_of_interest: Annotated[str, "标的代码"]
     asset_type: Annotated[str, "资产类型"]
     instrument_context: Annotated[str, "标的身份信息"]
+    candidate_context: Annotated[str, "行业发现/代表股研究来源；selection prior only"]
     trade_date: Annotated[str, "研究截止日"]
     past_context: Annotated[str, "历史复盘摘要"]
     sender: Annotated[str, "发送方"]
@@ -119,6 +120,7 @@ def build_analyst_runner(
             "company_of_interest": ticker,
             "asset_type": parent_state.get("asset_type", "stock"),
             "instrument_context": parent_state.get("instrument_context", ""),
+            "candidate_context": parent_state.get("candidate_context", ""),
             "trade_date": trade_date,
             "past_context": parent_state.get("past_context", ""),
             "sender": "",

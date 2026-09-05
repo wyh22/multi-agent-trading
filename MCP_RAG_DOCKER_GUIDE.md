@@ -36,7 +36,7 @@ LangGraph 7-Agent
 - **Hybrid Retrieval**：Qdrant Dense Retrieval + 本地 BM25，使用 RRF 融合候选。
 - **Reranking**：可选 `BAAI/bge-reranker-base` Cross-Encoder 二次排序。
 - **Docker Compose**：一键启动 `agent-api + finance-mcp + qdrant` 三个服务。
-- **FastAPI**：提供 `/analyze`、`/discover`、`/health` 服务接口。
+- **FastAPI**：提供 `/analyze`、`/discover`、`/research-pool`、`/chat`、`/health` 等服务接口。
 
 ## 2. 保持向后兼容
 
@@ -167,12 +167,20 @@ PIT 有两层保护：
 
 ## 8. API 示例
 
-候选发现：
+行业发现：
 
 ```bash
 curl -X POST http://localhost:8000/discover \
   -H 'Content-Type: application/json' \
-  -d '{"as_of_date":"2026-09-02","sector_count":4,"per_sector":35,"top_n":10}'
+  -d '{"as_of_date":"2026-09-05","top_n":6}'
+```
+
+Representative Research Pool：
+
+```bash
+curl -X POST http://localhost:8000/research-pool \
+  -H 'Content-Type: application/json' \
+  -d '{"as_of_date":"2026-09-05","sector_top_n":4,"representatives_per_sector":2,"component_limit":20,"strict_pit":true}'
 ```
 
 单股研究：
@@ -180,8 +188,10 @@ curl -X POST http://localhost:8000/discover \
 ```bash
 curl -X POST http://localhost:8000/analyze \
   -H 'Content-Type: application/json' \
-  -d '{"ticker":"600519.SH","trade_date":"2026-09-02","analysts":["market","news","fundamentals"]}'
+  -d '{"ticker":"600519.SH","trade_date":"2026-09-05","analysts":["market","news","fundamentals"]}'
 ```
+
+如果 ticker 来自 /research-pool，可把返回的 research_context 作为 /analyze 的 candidate_context 传入。该字段只作为 selection provenance，不是投资证据，并受到长度限制与 prompt-injection guard。
 
 ## 9. 测试
 

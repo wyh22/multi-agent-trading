@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tradingagents.agents.schemas import PortfolioDecision, render_pm_decision
 from tradingagents.agents.utils.agent_utils import (
+    get_candidate_context_from_state,
     get_instrument_context_from_state,
     get_language_instruction,
 )
@@ -23,6 +24,7 @@ def create_portfolio_manager(llm):
 
     def portfolio_manager_node(state) -> dict:
         instrument_context = get_instrument_context_from_state(state)
+        candidate_context = get_candidate_context_from_state(state)
         evidence_context = build_decision_context(state)
         past_context = state.get("past_context", "")
         audit_feedback = state.get("audit_feedback", "").strip()
@@ -43,6 +45,8 @@ def create_portfolio_manager(llm):
 
 {instrument_context}
 
+{candidate_context}
+
 ## 紧凑证据包
 {evidence_context}
 \n## Claim 类型规则\n{claim_usage_instruction()}\n
@@ -53,7 +57,7 @@ def create_portfolio_manager(llm):
 
 评级只能使用：Buy / Overweight / Hold / Underweight / Sell。
 要求：
-1. 结论必须能追溯到当前证据；没有证据时明确写“不确定/待验证”。
+1. 结论必须能追溯到当前证据；没有证据时明确写“不确定/待验证”。候选来源、行业 Style 或 representative_score 只能解释研究入口，不能作为评级依据。
 2. 同时吸收 Bull 与 Bear 的有效部分，不重复抄写其全文。
 3. 最多列出 5 项关键风险、5 项催化和 5 项失效条件。
 4. 不得给出无法由当前数据支持的精确价格目标。

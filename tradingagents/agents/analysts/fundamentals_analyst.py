@@ -4,6 +4,7 @@ from tradingagents.agents.utils.evidence_claims import claim_boundary_instructio
 
 from tradingagents.agents.utils.agent_utils import (
     get_balance_sheet,
+    get_candidate_context_from_state,
     get_cashflow,
     get_fundamentals,
     get_income_statement,
@@ -16,6 +17,7 @@ def create_fundamentals_analyst(llm, tools=None):
     def fundamentals_analyst_node(state):
         current_date = state["trade_date"]
         instrument_context = get_instrument_context_from_state(state)
+        candidate_context = get_candidate_context_from_state(state)
 
         active_tools = tools or [
             get_fundamentals,
@@ -53,6 +55,7 @@ def create_fundamentals_analyst(llm, tools=None):
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in active_tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
+        prompt = prompt.partial(candidate_context=candidate_context)
 
         chain = prompt | llm.bind_tools(active_tools)
 

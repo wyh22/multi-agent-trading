@@ -245,4 +245,5 @@ def test_application_surfaces_sector_discovery():
     assert '"sectors": result.sectors.sectors.to_dict' in service
     assert "result.sectors.sectors.head" in conversation
     assert "discover_sectors_tool" in coordinator
+    assert "build_research_pool_tool" in coordinator
     assert "discover_candidates_tool" not in coordinator

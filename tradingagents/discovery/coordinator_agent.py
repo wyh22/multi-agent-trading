@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import tool
 
 from .market import analyze_market_regime
-from .pipeline import run_discovery
+from .pipeline import run_discovery, run_research_pool
 from .sectors import analyze_sectors
 
 
@@ -113,6 +113,55 @@ def discover_sectors_tool(as_of_date: str, top_n: int = 6) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+
+
+@tool
+def build_research_pool_tool(
+    as_of_date: str,
+    sector_top_n: int = 4,
+    representatives_per_sector: int = 2,
+) -> str:
+    """为 Top 行业选择代表性股票作为后续 7-Agent 研究入口。"""
+
+    result = run_research_pool(
+        as_of_date,
+        sector_top_n=sector_top_n,
+        representatives_per_sector=representatives_per_sector,
+        strict_pit=True,
+    )
+    payload = {
+        "market_regime": result.discovery.market.regime,
+        "sectors": _records(
+            result.discovery.sectors.sectors,
+            [
+                "sector_code",
+                "sector_name",
+                "primary_style",
+                "style_profile",
+                "sector_score",
+            ],
+            sector_top_n,
+        ),
+        "representatives": _records(
+            result.representatives.representatives,
+            [
+                "ticker",
+                "name",
+                "sector_code",
+                "sector_name",
+                "representative_score",
+                "selection_reason",
+                "research_label",
+            ],
+            sector_top_n * representatives_per_sector,
+        ),
+        "warning": (
+            "Representative Research Entry 仅用于分配研究预算，不是股票投资评级。"
+        ),
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
 @dataclass
 class DiscoveryCoordinatorResult:
     final_message: str
@@ -129,6 +178,7 @@ class DiscoveryCoordinatorAgent:
             analyze_market_tool,
             rank_sector_tool,
             discover_sectors_tool,
+            build_research_pool_tool,
         ]
         self.tool_map = {item.name: item for item in self.tools}
         self.bound_llm = llm.bind_tools(self.tools)
@@ -148,7 +198,8 @@ class DiscoveryCoordinatorAgent:
 1. 先理解 Market Regime；
 2. 查看申万一级行业横截面排名；
 3. 根据研究预算选择最多 {max_deep_research} 个行业作为后续研究优先级；
-4. 不直接声称某只股票是最佳投资标的，也不要绕过行业工具自行编造排名。
+4. 如果后续需要具体研究入口，可调用 build_research_pool_tool 为 Top 行业选择代表股；
+5. 不直接声称某只股票是最佳投资标的，也不要把代表性评分当作投资评级。
 
 研究预算：{research_budget}。
 预算低时减少后续研究行业数，不要重复调用同一工具。
@@ -156,7 +207,8 @@ class DiscoveryCoordinatorAgent:
 - 推荐优先研究的行业；
 - 每个行业主要由 Momentum / Value / Dividend / Liquidity 中哪些 Style 驱动；
 - 当前排名可能失效的条件；
-- 下一步应从这些行业中选择代表性股票，再进入 7-Agent 单股深度研究。
+- 如果已经调用代表股工具，说明哪些 ticker 只是后续 7-Agent 的 Research Entry；
+- 代表性评分只解释研究路由，不得升级为买入结论。
 """.strip()
 
         messages = [HumanMessage(content=system_text)]

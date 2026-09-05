@@ -74,7 +74,7 @@ def route_message(text: str, *, current_ticker: str | None = None, force_mode: s
     if force_mode != "auto":
         return ConversationRoute(force_mode, ticker)
 
-    discovery_words = ("候选", "筛选", "选股", "股票池", "top10", "top 10", "找几只", "找出")
+    discovery_words = ("候选", "筛选", "选股", "股票池", "top10", "top 10", "找几只", "找出", "行业排名", "板块排名", "行业发现", "值得关注的行业", "值得关注的板块", "代表股", "代表性股票", "研究池")
     research_words = ("深度分析", "深度研究", "完整分析", "完整研究", "投研报告", "研报", "全面分析", "重新分析", "重新研究")
     knowledge_words = ("公告", "年报", "季报", "财报原文", "历史材料", "问询函", "知识库")
 

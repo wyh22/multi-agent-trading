@@ -3,9 +3,12 @@
 from .market import analyze_market_regime
 from .pipeline import (
     run_discovery,
+    run_research_pool,
     run_stock_discovery_legacy,
     write_discovery_report,
+    write_research_pool_report,
 )
+from .representatives import select_representative_stocks
 from .sector_ranker import (
     LightGBMSectorRanker,
     blend_sector_scores,
@@ -20,8 +23,11 @@ __all__ = [
     "analyze_sectors",
     "blend_sector_scores",
     "run_discovery",
+    "run_research_pool",
     "run_stock_discovery_legacy",
+    "select_representative_stocks",
     "write_discovery_report",
+    "write_research_pool_report",
 ]
 
 

@@ -72,6 +72,31 @@ python scripts/discover_a_share.py --mode legacy-stock --date 2026-09-05 --top 1
 
 用于 A/B 对照，但不再是默认应用入口。Top-K 行业之后，系统再选择代表性股票进入现有 7-Agent 单股研究。
 
+### Representative Research Pool 如何接入 7-Agent
+
+Sector Discovery 之后，可运行：
+
+~~~bash
+python scripts/discover_a_share.py \
+  --mode pool \
+  --date 2026-09-05 \
+  --top 4 \
+  --representatives-per-sector 2
+~~~
+
+代表股评分只使用行业指数权重、流动性、行业内相对强弱和数据完整性，不使用 PE/ROE/利润增速等投资质量因子。输出 CSV 中每个 ticker 都带有 `research_context`。
+
+随后可以：
+
+~~~bash
+python scripts/analyze_representative.py \
+  --pool-csv reports/.../representative_research_pool.csv \
+  --ticker 600000.SH \
+  --date 2026-09-05
+~~~
+
+`research_context` 会进入 LangGraph 的 `candidate_context` 状态，但所有 Agent 都会收到“selection prior; NOT evidence”约束。Auditor 额外检查是否把行业 Style、代表性评分或入选原因升级成公司投资事实。
+
 ## 4. 一次单股深度研究如何执行
 
 入口：
@@ -313,7 +338,7 @@ agent-api
 
 1. `tradingagents/graph/setup.py`
 2. `tradingagents/graph/analyst_subgraph.py`
-3. `tradingagents/discovery/pipeline.py` / `sectors.py` / `sector_ranker.py`
+3. `tradingagents/discovery/pipeline.py` / `sectors.py` / `representatives.py` / `sector_ranker.py`
 4. `tradingagents/agents/auditors/decision_auditor.py`
 5. `tradingagents/rag/retriever.py`
 6. `tradingagents/mcp/server.py`

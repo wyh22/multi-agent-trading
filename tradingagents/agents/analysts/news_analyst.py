@@ -3,6 +3,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.evidence_claims import claim_boundary_instruction
 
 from tradingagents.agents.utils.agent_utils import (
+    get_candidate_context_from_state,
     get_global_news,
     get_instrument_context_from_state,
     get_language_instruction,
@@ -17,6 +18,7 @@ def create_news_analyst(llm, tools=None):
         asset_type = state.get("asset_type", "stock")
         asset_label = "company" if asset_type == "stock" else "asset"
         instrument_context = get_instrument_context_from_state(state)
+        candidate_context = get_candidate_context_from_state(state)
 
         active_tools = tools or [
             get_news,
@@ -67,6 +69,7 @@ def create_news_analyst(llm, tools=None):
         prompt = prompt.partial(tool_names=", ".join([tool.name for tool in active_tools]))
         prompt = prompt.partial(current_date=current_date)
         prompt = prompt.partial(instrument_context=instrument_context)
+        prompt = prompt.partial(candidate_context=candidate_context)
 
         chain = prompt | llm.bind_tools(active_tools)
         result = chain.invoke(state["messages"])
