@@ -9,7 +9,11 @@ from typing import Iterable
 from .embeddings import HashEmbedding, build_embedder, build_reranker
 from .evidence_pack import source_document_key
 from .models import KnowledgeChunk, RetrievalHit
-from .scope import GLOBAL_KNOWLEDGE_SCOPE
+from .scope import (
+    company_scope_id,
+    default_shared_scope_ids,
+    industry_scope_id,
+)
 from .store import QdrantKnowledgeStore
 
 
@@ -73,15 +77,19 @@ class InMemoryKnowledgeStore:
 
     def _eligible(
         self,
-        ticker: str | list[str],
+        scope_ids: list[str],
         as_of_date: str,
         doc_type: str | None = None,
+        legacy_ticker: str | None = None,
     ):
         cutoff = date.fromisoformat(as_of_date[:10])
-        scopes = {ticker} if isinstance(ticker, str) else set(ticker)
+        scopes = {str(item) for item in scope_ids if str(item)}
         out = []
         for i, c in enumerate(self.chunks):
-            if c.ticker not in scopes:
+            scope_id = f"{c.scope_type}:{c.scope_key}"
+            if scope_id not in scopes and not (
+                legacy_ticker and c.ticker == legacy_ticker
+            ):
                 continue
             if date.fromisoformat(c.publish_date) > cutoff:
                 continue
@@ -92,14 +100,59 @@ class InMemoryKnowledgeStore:
             out.append((i, c))
         return out
 
-    def query_dense(self, query: str, *, ticker: str | list[str], as_of_date: str, limit: int = 20, doc_type=None):
+    def query_dense(
+        self,
+        query: str,
+        *,
+        scope_ids: list[str],
+        as_of_date: str,
+        limit: int = 20,
+        doc_type=None,
+        legacy_ticker: str | None = None,
+    ):
         qv = self.embedder.embed([query])[0]
-        scored = [(c, _cosine(qv, self._vectors[i])) for i, c in self._eligible(ticker, as_of_date, doc_type)]
+        scored = [
+            (c, _cosine(qv, self._vectors[i]))
+            for i, c in self._eligible(
+                scope_ids,
+                as_of_date,
+                doc_type,
+                legacy_ticker=legacy_ticker,
+            )
+        ]
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:limit]
 
-    def scroll_chunks(self, *, ticker: str | list[str], as_of_date: str, limit: int = 1000, doc_type=None):
-        return [c for _, c in self._eligible(ticker, as_of_date, doc_type)][:limit]
+    def scroll_chunks(
+        self,
+        *,
+        scope_ids: list[str],
+        as_of_date: str,
+        limit: int = 1000,
+        doc_type=None,
+        legacy_ticker: str | None = None,
+    ):
+        return [
+            c
+            for _, c in self._eligible(
+                scope_ids,
+                as_of_date,
+                doc_type,
+                legacy_ticker=legacy_ticker,
+            )
+        ][:limit]
+
+    def resolve_industries(self, ticker: str, limit: int = 8) -> list[str]:
+        seen: list[str] = []
+        for chunk in self.chunks:
+            if chunk.ticker != ticker:
+                continue
+            industry = str(chunk.industry or "").strip()
+            if industry and industry not in seen:
+                seen.append(industry)
+            if len(seen) >= max(1, int(limit)):
+                break
+        return seen
 
 
 class HybridKnowledgeRetriever:
@@ -132,19 +185,32 @@ class HybridKnowledgeRetriever:
         corpus_limit: int = 1000,
         doc_type: str | None = None,
         max_chunks_per_doc: int = 2,
-        include_global_scope: bool = True,
+        industry: str | None = None,
+        include_shared_scopes: bool = True,
     ) -> list[RetrievalHit]:
         # Qdrant filter is the first PIT gate; final date check below is a defense-in-depth gate.
         cutoff = date.fromisoformat(as_of_date[:10])
-        scopes = [ticker]
-        if include_global_scope and ticker != GLOBAL_KNOWLEDGE_SCOPE:
-            scopes.append(GLOBAL_KNOWLEDGE_SCOPE)
+        industries: list[str] = []
+        if industry and str(industry).strip():
+            industries = [str(industry).strip()]
+        elif hasattr(self.store, "resolve_industries"):
+            try:
+                industries = list(self.store.resolve_industries(ticker))
+            except Exception:
+                industries = []
+
+        scope_ids = [company_scope_id(ticker)]
+        scope_ids.extend(industry_scope_id(item) for item in industries)
+        if include_shared_scopes:
+            scope_ids.extend(default_shared_scope_ids())
+        scope_ids = list(dict.fromkeys(scope_ids))
         dense = [
             item
             for item in self.store.query_dense(
                 query,
-                ticker=scopes,
+                scope_ids=scope_ids,
                 as_of_date=as_of_date,
+                legacy_ticker=ticker,
                 limit=candidate_k,
                 doc_type=doc_type,
             )
@@ -153,8 +219,9 @@ class HybridKnowledgeRetriever:
         corpus = [
             chunk
             for chunk in self.store.scroll_chunks(
-                ticker=scopes,
+                scope_ids=scope_ids,
                 as_of_date=as_of_date,
+                legacy_ticker=ticker,
                 limit=corpus_limit,
                 doc_type=doc_type,
             )
