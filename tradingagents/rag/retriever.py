@@ -7,6 +7,7 @@ from datetime import date
 from typing import Iterable
 
 from .embeddings import HashEmbedding, build_embedder, build_reranker
+from .evidence_pack import source_document_key
 from .models import KnowledgeChunk, RetrievalHit
 from .store import QdrantKnowledgeStore
 
@@ -123,6 +124,7 @@ class HybridKnowledgeRetriever:
         candidate_k: int = 30,
         corpus_limit: int = 1000,
         doc_type: str | None = None,
+        max_chunks_per_doc: int = 2,
     ) -> list[RetrievalHit]:
         # Qdrant filter is the first PIT gate; final date check below is a defense-in-depth gate.
         cutoff = date.fromisoformat(as_of_date[:10])
@@ -181,14 +183,23 @@ class HybridKnowledgeRetriever:
             )
 
         hits = []
-        for cid in ordered[:top_k]:
+        per_document: Counter[str] = Counter()
+        cap = max(1, int(max_chunks_per_doc))
+        for cid in ordered:
+            chunk = chunks[cid]
+            document_key = source_document_key(chunk)
+            if per_document[document_key] >= cap:
+                continue
             hits.append(
                 RetrievalHit(
-                    chunk=chunks[cid],
+                    chunk=chunk,
                     score=rerank_scores.get(cid, rrf[cid]),
                     dense_score=dense_score.get(cid),
                     bm25_score=sparse_score.get(cid),
                     rerank_score=rerank_scores.get(cid),
                 )
             )
+            per_document[document_key] += 1
+            if len(hits) >= top_k:
+                break
         return hits
