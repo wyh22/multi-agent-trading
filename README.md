@@ -19,30 +19,30 @@
 
 - 用确定性 Python 完成 **A 股行业发现与 Style Ranking**，Market Regime 只调整 Momentum / Value / Dividend / Liquidity 权重，不再通过 Top 行业硬门控个股；Top-K 行业之后再用行业权重、流动性、行业内相对强弱和数据完整性选择 Representative Research Entries；
 - 用 **Point-in-Time（PIT）数据约束**限制历史时点可见信息，降低未来数据泄漏；
-- 使用 **Conversation-first Supervisor** 根据用户对话动态选择原子 Tool、Market/News/Fundamentals 专业 Agent、任务 Skill 或完整 Deep Research；固定 7-role Graph 不再是所有请求的默认入口；
+- 使用 **Conversation-first Supervisor + Task Contract + Completion Gate**：根据用户对话动态选择原子 Tool、专业 Agent、Skill 或完整 Deep Research；Supervisor step limit 只是成本预算，未覆盖完用户要求时显式返回 PARTIAL；
 - 完整研究仍保留两阶段 Fan-Out/Fan-In，并把它包装成高成本 `deep_stock_research` Skill；
-- 在 Agent 之间引入 **Claim-aware Context Compression**：将证据显式区分为 FACT / CALCULATION / INFERENCE / CONDITIONAL，并按类型与字符预算选择性压缩；
+- 在 Agent 之间引入 **Evidence Ledger + Hypothesis Ledger**：FACT/CALCULATION 与 INFERENCE/CONDITIONAL 使用独立上下文预算，既防止推断升级为事实，也避免研究假设被保守压缩抹掉；
 - 增加 **Decision Auditor + targeted repair**：对最终结论做事实、数字、PIT 与证据一致性检查，REVISE 时可定向让 Market / News / Fundamentals 重新取证，再由 PM 重综合；
-- 通过 **Finance MCP + Shared Qdrant Hybrid RAG** 标准化工具与知识检索；RAG 可由 Supervisor、News 和 Fundamentals 共同调用，并支持 PDF / DOCX / TXT / Markdown 摄取；
+- 通过 **Shared Qdrant Hybrid RAG** 提供 PIT-aware 文档证据；用户上传日期记录 provenance，历史研究对显式未验证日期 fail closed；MCP 仅作为可选远程 Tool Adapter，本地 Python Tool 仍是默认路径；
 - Conversation SQLite 增加 **immutable Research Version + rollback**；LangGraph Checkpoint 继续专门负责 crash resume；
-- 提供 **Agent Evaluation + Outcome Backtest**，把“工程质量”和“市场结果”分开评估；
+- 提供 **Routing Eval + Claim Grounding Eval + Agent Evaluation + Outcome Backtest**，并预留 Single-Agent / Fixed Multi-Agent / Dynamic Supervisor 同条件 baseline 对照；
 - 提供 **FastAPI + 浏览器 Chat UI + Docker Compose**，支持本地服务化运行。
 
 ## 核心能力
 
 | 模块 | 实现 | 解决的问题 |
 | --- | --- | --- |
-| Conversation Supervisor | LLM structured routing + bounded Decide→Execute→Observe→Re-decide + deterministic fallback | 按任务复杂度动态组合 Tool / Specialist Agent / Skill / Deep Research |
+| Conversation Supervisor | LLM routing + Task Contract + Completion Gate + bounded Re-decision | 按任务复杂度组合能力，并显式判断 COMPLETE / PARTIAL |
 | Deep Research Skill | Market / News / Fundamentals → Bull & Bear → Portfolio Manager → Auditor | 只在复杂综合研究时启用完整多角色图 |
 | 并行执行 | Analyst Subgraph + Fan-Out/Fan-In | 降低串行 Agent 延迟 |
-| Claim-aware Context | FACT / CALCULATION / INFERENCE / CONDITIONAL + deterministic budget compression | 减少重复上下文，并防止推断/条件情景被升级为事实 |
-| A 股行业发现 | Market Regime + Momentum/Value/Dividend/Liquidity Style Rank + 可选 LightGBM | 避免跨行业用同一套个股财务因子硬排名，并把数值排序交给可审计模型 |
+| Dual Research Ledger | Evidence: FACT/CALCULATION；Hypothesis: INFERENCE/CONDITIONAL | 同时保留事实保真与发散研究假设 |
+| A 股行业发现 | Regime Rule + 可选 PIT-safe trailing Style IC adapter + 可选 LightGBM | 保留可解释 Rule fallback，同时允许有历史验证数据时做 walk-forward 权重修正 |
 | Representative Pool | 行业权重 + 流动性 + 行业内相对强弱 + 数据完整性 | 从 Top 行业选择 7-Agent 研究入口，不把研究路由伪装成投资评级 |
 | PIT 数据治理 | 披露日/发布日期截止过滤 | 降低未来函数与历史穿越 |
 | Decision Auditor | PASS / REVISE + repair_target | 检查无依据推断，并把缺失证据定向路由给责任 Agent |
 | Finance MCP | Streamable HTTP + Local fallback + allowlist | 解耦 Agent 与金融数据工具 |
-| Shared Hybrid RAG | Qdrant Dense + BM25 + RRF + 可选 Reranker + PDF/DOCX ingestion | 为多个 Agent 与对话层提供 PIT-safe 可追溯文档证据 |
-| 多轮会话 | Supervisor + thread_id + SQLite | 对话驱动能力选择并复用已审计研究上下文 |
+| Shared Hybrid RAG | Dense + BM25 + RRF + Reranker + Temporal Provenance | 未验证发布日期文档不会进入历史 PIT 检索 |
+| 多轮会话 | Supervisor + Task Contract + thread_id + SQLite | 返回 COMPLETE / PARTIAL / REVIEW_REQUIRED / DATA_UNAVAILABLE / SYSTEM_ERROR，并支持 HITL 继续补查 |
 | Research Rollback | Immutable SQLite research versions | 恢复上一版/指定版本；与 crash checkpoint 分离 |
 | Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |
 | Outcome Backtest | Rating vs. realized / benchmark return | 将“研究质量评估”和“市场结果评估”分离 |
@@ -463,7 +463,7 @@ publish_date <= as_of_date
 - [ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)：设计取舍、代码所有权边界、面向工程评审的实现说明
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
 - [MCP_RAG_DOCKER_GUIDE.md](MCP_RAG_DOCKER_GUIDE.md)：MCP、Qdrant Hybrid RAG、Docker
-- [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback
+- [docs/V1_6_HARDENING.md](docs/V1_6_HARDENING.md)：Task Contract、Completion、显式降级、Temporal Provenance、Evaluation 与 remaining boundaries\n- [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback
 - [V1.4_VALIDATION.md](V1.4_VALIDATION.md)：当前离线验证边界
 
 ## 二次开发与许可证
