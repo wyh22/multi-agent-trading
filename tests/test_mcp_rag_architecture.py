@@ -55,3 +55,4 @@ def test_rag_ingest_cli_exposes_explicit_provenance_controls():
     assert "--publish-date-verified" in source
     assert "--source-authority" in source
     assert "--source-url" in source
+    assert "--url" in source
