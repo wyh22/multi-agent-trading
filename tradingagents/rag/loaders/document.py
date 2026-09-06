@@ -77,8 +77,8 @@ def _pdf_documents(
                     metadata={
                         "file_name": display_name,
                         "file_hash": file_hash,
-                        "source_authority": str(source_authority or ""),
-                        "source_url": str(source_url or ""),
+                "source_authority": str(source_authority or ""),
+                "source_url": str(source_url or ""),
                         "page": page_no,
                         **_date_meta(
                             source=publish_date_source,
@@ -152,8 +152,8 @@ def _docx_documents(
             metadata={
                 "file_name": display_name,
                 "file_hash": file_hash,
-                        "source_authority": str(source_authority or ""),
-                        "source_url": str(source_url or ""),
+                "source_authority": str(source_authority or ""),
+                "source_url": str(source_url or ""),
                 "heading_hint": heading_path[-1] if heading_path else "",
                 **_date_meta(
                     source=publish_date_source,
@@ -197,8 +197,8 @@ def _text_documents(
             metadata={
                 "file_name": display_name,
                 "file_hash": file_hash,
-                        "source_authority": str(source_authority or ""),
-                        "source_url": str(source_url or ""),
+                "source_authority": str(source_authority or ""),
+                "source_url": str(source_url or ""),
                 **_date_meta(
                     source=publish_date_source,
                     confidence=publish_date_confidence,
@@ -234,8 +234,6 @@ def load_documents(
         "publish_date": publish_date,
         "doc_type": doc_type,
         "file_hash": file_hash,
-                        "source_authority": str(source_authority or ""),
-                        "source_url": str(source_url or ""),
         "source_name": source_name,
         "publish_date_source": publish_date_source,
         "publish_date_confidence": publish_date_confidence,
