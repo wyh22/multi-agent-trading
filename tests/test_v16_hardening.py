@@ -488,3 +488,38 @@ def test_structured_completion_is_sanitized_before_status_mapping():
     assert result.complete is False
     assert result.completion_ratio == 0.5
     assert result.missing_items == ["601016.SH::business_operations"]
+
+
+def test_repair_fallback_uses_rag_after_relevant_specialists_are_exhausted():
+    registry = CapabilityRegistry()
+    for name in ("fundamentals", "news"):
+        registry.register(
+            CapabilitySpec(
+                name=name,
+                kind="agent",
+                description=name,
+                requires_ticker=True,
+            )
+        )
+    registry.register(
+        CapabilitySpec(
+            name="document_evidence_analysis",
+            kind="skill",
+            description="PIT-aware document evidence",
+            requires_ticker=True,
+        )
+    )
+    supervisor = ConversationSupervisor(NoStructuredLLM(), registry)
+    action = supervisor.decide(
+        "继续补查：主营业务、装机容量、政策风险、弃风限电、补贴",
+        current_ticker="601016.SH",
+        as_of_date="2026-09-06",
+        history=[],
+        repair_mode=True,
+        used_capabilities=[
+            "delegate_agent:fundamentals",
+            "delegate_agent:news",
+        ],
+    )
+    assert action.action == "run_skill"
+    assert action.target == "document_evidence_analysis"
