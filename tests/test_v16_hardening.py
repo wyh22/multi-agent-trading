@@ -452,3 +452,39 @@ def test_repair_fallback_uses_complementary_specialists_without_full_rerun():
     )
     assert second.action == "delegate_agent"
     assert second.target == "news"
+
+
+class InconsistentCompletionLLM:
+    def with_structured_output(self, _schema):
+        return self
+
+    def invoke(self, _prompt):
+        return CompletionAssessment(
+            complete=True,
+            completion_ratio=0.9,
+            completed_items=["601016.SH::technical"],
+            missing_items=["601016.SH::business_operations"],
+            critical_missing=[],
+            evidence_gaps=[],
+            reason="model marked complete despite a missing checklist item",
+        )
+
+
+def test_structured_completion_is_sanitized_before_status_mapping():
+    contract = TaskContract(
+        objective="完整分析节能风电",
+        required_dimensions=["technical", "business_operations"],
+        required_entities=["601016.SH"],
+        critical_requirements=["technical"],
+        expected_output="research_answer",
+        can_be_partial=True,
+    )
+    gate = CompletionGate(InconsistentCompletionLLM())
+    result = gate.assess(
+        contract,
+        observations=["technical 已覆盖"],
+        used_capabilities=["run_skill:deep_stock_research"],
+    )
+    assert result.complete is False
+    assert result.completion_ratio == 0.5
+    assert result.missing_items == ["601016.SH::business_operations"]

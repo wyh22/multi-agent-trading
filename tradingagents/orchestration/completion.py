@@ -274,7 +274,7 @@ Task Contract:
             result = self.structured_llm.invoke(prompt)
             if result is None:
                 raise ValueError("empty completion assessment")
-            return result
+            return self._sanitize(contract, result)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Completion assessment failed; using fallback: %s", exc)
             return self._fallback(contract, observations)
