@@ -2,12 +2,100 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from typing import Iterable
 
-from tradingagents.rag.scope import normalize_scope
 from tradingagents.rag.chunking import chunk_document
 from tradingagents.rag.embeddings import build_embedder
 from tradingagents.rag.loaders import load_documents
+from tradingagents.rag.models import KnowledgeDocument
+from tradingagents.rag.scope import normalize_scope
 from tradingagents.rag.store import QdrantKnowledgeStore
+
+
+def prepare_path_documents(
+    path: str | Path,
+    *,
+    ticker: str | None,
+    publish_date: str,
+    scope_type: str = "company",
+    scope_key: str | None = None,
+    industry: str | None = None,
+    doc_type: str = "user_document",
+    source_name: str | None = None,
+    publish_date_source: str = "USER",
+    publish_date_confidence: float = 0.5,
+    publish_date_verified: bool = False,
+    source_authority: str | None = None,
+    source_url: str | None = None,
+) -> list[KnowledgeDocument]:
+    """Parse one local document into normalized, scoped knowledge documents."""
+
+    scope = normalize_scope(
+        scope_type=scope_type,
+        scope_key=scope_key,
+        ticker=ticker,
+        industry=industry,
+    )
+    docs = load_documents(
+        path,
+        ticker=scope.ticker,
+        publish_date=publish_date,
+        doc_type=doc_type,
+        source_name=source_name,
+        publish_date_source=publish_date_source,
+        publish_date_confidence=publish_date_confidence,
+        publish_date_verified=publish_date_verified,
+        source_authority=source_authority,
+        source_url=source_url,
+    )
+    return [
+        replace(
+            doc,
+            scope_type=scope.scope_type,
+            scope_key=scope.scope_key,
+            industry=scope.industry,
+        )
+        for doc in docs
+    ]
+
+
+def ingest_documents(
+    documents: Iterable[KnowledgeDocument],
+    *,
+    config: dict,
+    chunk_chars: int = 900,
+    overlap_chars: int = 120,
+) -> dict:
+    """Chunk and upsert an arbitrary cross-company/cross-scope document batch."""
+
+    docs = list(documents)
+    chunks = []
+    for doc in docs:
+        chunks.extend(
+            chunk_document(
+                doc,
+                target_chars=chunk_chars,
+                overlap_chars=overlap_chars,
+            )
+        )
+
+    embedder = build_embedder(config)
+    store = QdrantKnowledgeStore(
+        url=str(config.get("qdrant_url", "http://localhost:6333")),
+        collection=str(config.get("qdrant_collection", "a_share_knowledge")),
+        embedder=embedder,
+        api_key=config.get("qdrant_api_key") or None,
+    )
+    count = store.upsert_chunks(chunks)
+    scope_ids = sorted(
+        {f"{doc.scope_type}:{doc.scope_key}" for doc in docs}
+    )
+    return {
+        "documents": len(docs),
+        "chunks": count,
+        "scope_ids": scope_ids,
+        "collection": store.collection,
+    }
 
 
 def ingest_path(
@@ -29,18 +117,15 @@ def ingest_path(
     source_authority: str | None = None,
     source_url: str | None = None,
 ) -> dict:
-    """Parse, chunk and upsert a user/company document into the configured RAG store."""
+    """Parse, chunk and upsert one document into the configured RAG store."""
 
-    scope = normalize_scope(
+    docs = prepare_path_documents(
+        path,
+        ticker=ticker,
+        publish_date=publish_date,
         scope_type=scope_type,
         scope_key=scope_key,
-        ticker=ticker,
         industry=industry,
-    )
-    docs = load_documents(
-        path,
-        ticker=scope.ticker,
-        publish_date=publish_date,
         doc_type=doc_type,
         source_name=source_name,
         publish_date_source=publish_date_source,
@@ -49,32 +134,18 @@ def ingest_path(
         source_authority=source_authority,
         source_url=source_url,
     )
-    docs = [
-        replace(
-            doc,
-            scope_type=scope.scope_type,
-            scope_key=scope.scope_key,
-            industry=scope.industry,
-        )
-        for doc in docs
-    ]
-    chunks = []
-    for doc in docs:
-        chunks.extend(
-            chunk_document(
-                doc,
-                target_chars=chunk_chars,
-                overlap_chars=overlap_chars,
-            )
-        )
-    embedder = build_embedder(config)
-    store = QdrantKnowledgeStore(
-        url=str(config.get("qdrant_url", "http://localhost:6333")),
-        collection=str(config.get("qdrant_collection", "a_share_knowledge")),
-        embedder=embedder,
-        api_key=config.get("qdrant_api_key") or None,
+    result = ingest_documents(
+        docs,
+        config=config,
+        chunk_chars=chunk_chars,
+        overlap_chars=overlap_chars,
     )
-    count = store.upsert_chunks(chunks)
+    scope = normalize_scope(
+        scope_type=scope_type,
+        scope_key=scope_key,
+        ticker=ticker,
+        industry=industry,
+    )
     hashes = sorted(
         {
             str(doc.metadata.get("file_hash", ""))
@@ -88,10 +159,7 @@ def ingest_path(
         "scope_key": scope.scope_key,
         "scope_id": scope.scope_id,
         "industry": scope.industry,
-        "documents": len(docs),
-        "chunks": count,
         "file_hashes": hashes,
-        "collection": store.collection,
         "publish_date_provenance": {
             "source": publish_date_source,
             "confidence": float(publish_date_confidence),
@@ -99,4 +167,5 @@ def ingest_path(
             "authority": source_authority or "",
             "url": source_url or "",
         },
+        **result,
     }
