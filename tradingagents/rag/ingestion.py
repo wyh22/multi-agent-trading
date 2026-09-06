@@ -22,6 +22,8 @@ def ingest_path(
     publish_date_source: str = "USER",
     publish_date_confidence: float = 0.5,
     publish_date_verified: bool = False,
+    source_authority: str | None = None,
+    source_url: str | None = None,
 ) -> dict:
     """Parse, chunk and upsert a user/company document into the configured RAG store."""
 
@@ -35,6 +37,8 @@ def ingest_path(
         publish_date_source=publish_date_source,
         publish_date_confidence=publish_date_confidence,
         publish_date_verified=publish_date_verified,
+        source_authority=source_authority,
+        source_url=source_url,
     )
     chunks = []
     for doc in docs:
@@ -70,5 +74,7 @@ def ingest_path(
             "source": publish_date_source,
             "confidence": float(publish_date_confidence),
             "verified": bool(publish_date_verified),
+            "authority": source_authority or "",
+            "url": source_url or "",
         },
     }
