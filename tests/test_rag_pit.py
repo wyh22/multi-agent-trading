@@ -1,3 +1,6 @@
+import pandas as pd
+
+from tradingagents.rag.bootstrap import select_high_value_disclosures
 from tradingagents.rag.evidence_pack import (
     build_retrieval_queries,
     source_document_key,
@@ -201,3 +204,77 @@ def test_company_search_automatically_adds_known_industry_scope():
         top_k=2,
     )
     assert any(hit.chunk.scope_type == "industry" for hit in hits)
+
+
+def test_autumn_bootstrap_selects_high_value_generic_filings():
+    disclosures = pd.DataFrame(
+        [
+            {
+                "公告时间": "2026-08-29",
+                "公告标题": "2026年半年度报告",
+                "公告链接": "https://static.cninfo.com.cn/semi.pdf",
+            },
+            {
+                "公告时间": "2026-07-15",
+                "公告标题": "投资者关系活动记录表",
+                "公告链接": "https://static.cninfo.com.cn/ir.pdf",
+            },
+            {
+                "公告时间": "2026-04-20",
+                "公告标题": "2025年年度报告摘要",
+                "公告链接": "https://static.cninfo.com.cn/summary.pdf",
+            },
+            {
+                "公告时间": "2026-04-20",
+                "公告标题": "2025年年度报告",
+                "公告链接": "https://static.cninfo.com.cn/annual.pdf",
+            },
+        ]
+    )
+    selected = select_high_value_disclosures(
+        disclosures,
+        ticker="600000.SH",
+        annual_year=2025,
+        interim_year=2026,
+        max_docs=3,
+    )
+    assert [item.doc_type for item in selected] == [
+        "annual_report",
+        "semiannual_report",
+        "investor_relation",
+    ]
+    assert all("summary.pdf" not in item.url for item in selected)
+
+
+def test_autumn_bootstrap_falls_back_to_q1_without_ir_record():
+    disclosures = pd.DataFrame(
+        [
+            {
+                "公告时间": "2026-08-29",
+                "公告标题": "2026年半年度报告",
+                "公告链接": "/finalpage/semi.pdf",
+            },
+            {
+                "公告时间": "2026-04-30",
+                "公告标题": "2026年第一季度报告",
+                "公告链接": "/finalpage/q1.pdf",
+            },
+            {
+                "公告时间": "2026-03-25",
+                "公告标题": "2025年年度报告",
+                "公告链接": "/finalpage/annual.pdf",
+            },
+        ]
+    )
+    selected = select_high_value_disclosures(
+        disclosures,
+        ticker="000001.SZ",
+        annual_year=2025,
+        interim_year=2026,
+    )
+    assert [item.doc_type for item in selected] == [
+        "annual_report",
+        "semiannual_report",
+        "quarterly_report",
+    ]
+    assert all(item.url.startswith("https://") for item in selected)
