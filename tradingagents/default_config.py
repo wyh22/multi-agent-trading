@@ -42,6 +42,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_RAG_RERANKER_MODEL": "rag_reranker_model",
     "TRADINGAGENTS_RAG_CANDIDATE_K": "rag_candidate_k",
     "TRADINGAGENTS_RAG_BM25_CORPUS_LIMIT": "rag_bm25_corpus_limit",
+    "TRADINGAGENTS_RAG_MAX_CHUNKS_PER_DOC": "rag_max_chunks_per_doc",
+    "TRADINGAGENTS_RAG_REPAIR_MAX_QUERIES": "rag_repair_max_queries",
     "TRADINGAGENTS_CONVERSATION_DB_PATH": "conversation_db_path",
     "TRADINGAGENTS_CONVERSATION_HISTORY_TURNS": "conversation_history_turns",
     "TRADINGAGENTS_CONVERSATION_TOOL_ROUNDS": "conversation_tool_rounds",
@@ -125,6 +127,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "rag_reranker_model": "BAAI/bge-reranker-base",
     "rag_candidate_k": 30,
     "rag_bm25_corpus_limit": 1000,
+    "rag_max_chunks_per_doc": 2,
+    "rag_repair_max_queries": 4,
     "rag_excerpt_chars": 650,
     "rag_hash_dimension": 256,
     "conversation_db_path": os.getenv(
