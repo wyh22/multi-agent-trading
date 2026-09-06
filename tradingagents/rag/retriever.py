@@ -9,6 +9,7 @@ from typing import Iterable
 from .embeddings import HashEmbedding, build_embedder, build_reranker
 from .evidence_pack import source_document_key
 from .models import KnowledgeChunk, RetrievalHit
+from .scope import GLOBAL_KNOWLEDGE_SCOPE
 from .store import QdrantKnowledgeStore
 
 
@@ -70,11 +71,17 @@ class InMemoryKnowledgeStore:
         self.embedder = embedder or HashEmbedding()
         self._vectors = self.embedder.embed([c.text for c in self.chunks]) if self.chunks else []
 
-    def _eligible(self, ticker: str, as_of_date: str, doc_type: str | None = None):
+    def _eligible(
+        self,
+        ticker: str | list[str],
+        as_of_date: str,
+        doc_type: str | None = None,
+    ):
         cutoff = date.fromisoformat(as_of_date[:10])
+        scopes = {ticker} if isinstance(ticker, str) else set(ticker)
         out = []
         for i, c in enumerate(self.chunks):
-            if c.ticker != ticker:
+            if c.ticker not in scopes:
                 continue
             if date.fromisoformat(c.publish_date) > cutoff:
                 continue
@@ -85,13 +92,13 @@ class InMemoryKnowledgeStore:
             out.append((i, c))
         return out
 
-    def query_dense(self, query: str, *, ticker: str, as_of_date: str, limit: int = 20, doc_type=None):
+    def query_dense(self, query: str, *, ticker: str | list[str], as_of_date: str, limit: int = 20, doc_type=None):
         qv = self.embedder.embed([query])[0]
         scored = [(c, _cosine(qv, self._vectors[i])) for i, c in self._eligible(ticker, as_of_date, doc_type)]
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:limit]
 
-    def scroll_chunks(self, *, ticker: str, as_of_date: str, limit: int = 1000, doc_type=None):
+    def scroll_chunks(self, *, ticker: str | list[str], as_of_date: str, limit: int = 1000, doc_type=None):
         return [c for _, c in self._eligible(ticker, as_of_date, doc_type)][:limit]
 
 
@@ -125,14 +132,18 @@ class HybridKnowledgeRetriever:
         corpus_limit: int = 1000,
         doc_type: str | None = None,
         max_chunks_per_doc: int = 2,
+        include_global_scope: bool = True,
     ) -> list[RetrievalHit]:
         # Qdrant filter is the first PIT gate; final date check below is a defense-in-depth gate.
         cutoff = date.fromisoformat(as_of_date[:10])
+        scopes = [ticker]
+        if include_global_scope and ticker != GLOBAL_KNOWLEDGE_SCOPE:
+            scopes.append(GLOBAL_KNOWLEDGE_SCOPE)
         dense = [
             item
             for item in self.store.query_dense(
                 query,
-                ticker=ticker,
+                ticker=scopes,
                 as_of_date=as_of_date,
                 limit=candidate_k,
                 doc_type=doc_type,
@@ -142,7 +153,7 @@ class HybridKnowledgeRetriever:
         corpus = [
             chunk
             for chunk in self.store.scroll_chunks(
-                ticker=ticker,
+                ticker=scopes,
                 as_of_date=as_of_date,
                 limit=corpus_limit,
                 doc_type=doc_type,
