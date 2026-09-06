@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 
 from .akshare_financials import (
     get_free_balance_sheet,
@@ -30,6 +32,34 @@ from .fred import get_macro_data as get_fred_macro_data
 from .stockstats_utils import get_stock_stats_indicators_window
 
 logger = logging.getLogger(__name__)
+
+_VENDOR_CIRCUIT_COOLDOWN_SECONDS = 60.0
+_VENDOR_CIRCUIT_LOCK = threading.Lock()
+_VENDOR_CIRCUIT_OPEN_UNTIL: dict[tuple[str, str], float] = {}
+
+
+def _vendor_circuit_open(method: str, vendor: str) -> bool:
+    key = (method, vendor)
+    now = time.monotonic()
+    with _VENDOR_CIRCUIT_LOCK:
+        until = float(_VENDOR_CIRCUIT_OPEN_UNTIL.get(key, 0.0) or 0.0)
+        if until <= now:
+            _VENDOR_CIRCUIT_OPEN_UNTIL.pop(key, None)
+            return False
+        return True
+
+
+def _open_vendor_circuit(method: str, vendor: str) -> None:
+    with _VENDOR_CIRCUIT_LOCK:
+        _VENDOR_CIRCUIT_OPEN_UNTIL[(method, vendor)] = (
+            time.monotonic() + _VENDOR_CIRCUIT_COOLDOWN_SECONDS
+        )
+
+
+def _reset_vendor_circuit_breakers() -> None:
+    """Test helper; production callers should rely on cooldown expiry."""
+    with _VENDOR_CIRCUIT_LOCK:
+        _VENDOR_CIRCUIT_OPEN_UNTIL.clear()
 
 
 def _alpha_insider(ticker: str, curr_date: str | None = None):
@@ -136,12 +166,22 @@ def route_to_vendor(method: str, *args, **kwargs):
 
     last_no_data: NoMarketDataError | None = None
     first_error: Exception | None = None
+    skipped_by_circuit: list[str] = []
 
     for vendor in vendor_chain:
+        if _vendor_circuit_open(method, vendor):
+            skipped_by_circuit.append(vendor)
+            logger.debug(
+                "Vendor %r circuit open for %s; skipping during cooldown.",
+                vendor,
+                method,
+            )
+            continue
         impl_func = VENDOR_METHODS[method][vendor]
         try:
             return impl_func(*args, **kwargs)
         except VendorRateLimitError:
+            _open_vendor_circuit(method, vendor)
             logger.warning("Vendor %r rate-limited for %s; trying next vendor.", vendor, method)
         except VendorNotConfiguredError as exc:
             logger.warning("Vendor %r not configured for %s; trying next vendor.", vendor, method)
@@ -149,6 +189,7 @@ def route_to_vendor(method: str, *args, **kwargs):
         except NoMarketDataError as exc:
             last_no_data = exc
         except Exception as exc:
+            _open_vendor_circuit(method, vendor)
             logger.warning("Vendor %r failed for %s: %s", vendor, method, exc)
             first_error = first_error or exc
 
@@ -173,5 +214,20 @@ def route_to_vendor(method: str, *args, **kwargs):
                 f"({first_error}). Proceed without it; do not fabricate values."
             )
         raise first_error
+
+    if skipped_by_circuit:
+        if category == "macro_data" or method in {
+            "get_news",
+            "get_global_news",
+            "get_insider_transactions",
+        }:
+            return (
+                f"DATA_UNAVAILABLE: optional {method} vendors are temporarily "
+                f"in circuit-breaker cooldown ({', '.join(skipped_by_circuit)}). "
+                "Proceed without it; do not fabricate values."
+            )
+        raise RuntimeError(
+            f"All configured vendors for '{method}' are in circuit-breaker cooldown"
+        )
 
     raise RuntimeError(f"No available vendor for '{method}'")
