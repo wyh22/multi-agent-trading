@@ -240,22 +240,37 @@ class QdrantKnowledgeStore:
         self,
         *,
         ticker: str | None = None,
+        scope_type: str | None = None,
+        scope_key: str | None = None,
         limit: int = 100,
     ) -> list[dict]:
         """List parent documents and provenance metadata from stored chunks."""
 
         from qdrant_client import models
 
-        query_filter = None
+        must = []
         if ticker:
-            query_filter = models.Filter(
-                must=[
-                    models.FieldCondition(
-                        key="ticker",
-                        match=models.MatchValue(value=ticker),
-                    )
-                ]
+            must.append(
+                models.FieldCondition(
+                    key="ticker",
+                    match=models.MatchValue(value=ticker),
+                )
             )
+        if scope_type:
+            must.append(
+                models.FieldCondition(
+                    key="scope_type",
+                    match=models.MatchValue(value=scope_type),
+                )
+            )
+        if scope_key:
+            must.append(
+                models.FieldCondition(
+                    key="scope_key",
+                    match=models.MatchValue(value=scope_key),
+                )
+            )
+        query_filter = models.Filter(must=must) if must else None
 
         documents: dict[str, dict] = {}
         offset = None
