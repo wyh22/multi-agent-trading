@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
-from tradingagents.rag.scope import normalize_knowledge_scope
+from tradingagents.rag.scope import normalize_scope
 from tradingagents.rag.chunking import chunk_document
 from tradingagents.rag.embeddings import build_embedder
 from tradingagents.rag.loaders import load_documents
@@ -12,9 +13,12 @@ from tradingagents.rag.store import QdrantKnowledgeStore
 def ingest_path(
     path: str | Path,
     *,
-    ticker: str,
+    ticker: str | None,
     publish_date: str,
     config: dict,
+    scope_type: str = "company",
+    scope_key: str | None = None,
+    industry: str | None = None,
     doc_type: str = "user_document",
     chunk_chars: int = 900,
     overlap_chars: int = 120,
@@ -27,10 +31,15 @@ def ingest_path(
 ) -> dict:
     """Parse, chunk and upsert a user/company document into the configured RAG store."""
 
-    canonical = normalize_knowledge_scope(ticker)
+    scope = normalize_scope(
+        scope_type=scope_type,
+        scope_key=scope_key,
+        ticker=ticker,
+        industry=industry,
+    )
     docs = load_documents(
         path,
-        ticker=canonical,
+        ticker=scope.ticker,
         publish_date=publish_date,
         doc_type=doc_type,
         source_name=source_name,
@@ -40,6 +49,15 @@ def ingest_path(
         source_authority=source_authority,
         source_url=source_url,
     )
+    docs = [
+        replace(
+            doc,
+            scope_type=scope.scope_type,
+            scope_key=scope.scope_key,
+            industry=scope.industry,
+        )
+        for doc in docs
+    ]
     chunks = []
     for doc in docs:
         chunks.extend(
@@ -65,7 +83,11 @@ def ingest_path(
         }
     )
     return {
-        "ticker": canonical,
+        "ticker": scope.ticker,
+        "scope_type": scope.scope_type,
+        "scope_key": scope.scope_key,
+        "scope_id": scope.scope_id,
+        "industry": scope.industry,
         "documents": len(docs),
         "chunks": count,
         "file_hashes": hashes,
