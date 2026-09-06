@@ -16,7 +16,13 @@ from tradingagents.graph.trading_graph import TradingAgentsGraph, _coerce_max_re
 from tradingagents.llm_clients import create_llm_client
 from tradingagents.orchestration.analyst_executor import SpecialistAgentExecutor
 from tradingagents.orchestration.completion import CompletionGate, TaskContractBuilder
-from tradingagents.orchestration.schemas import (\n    CompletionAssessment,\n    ExecutionResult,\n    ResearchResponse,\n    SupervisorAction,\n)\nfrom tradingagents.orchestration.supervisor import ConversationSupervisor
+from tradingagents.orchestration.schemas import (
+    CompletionAssessment,
+    ExecutionResult,
+    ResearchResponse,
+    SupervisorAction,
+)
+from tradingagents.orchestration.supervisor import ConversationSupervisor
 from tradingagents.skills.registry import BUILTIN_SKILLS
 
 logger = logging.getLogger(__name__)
