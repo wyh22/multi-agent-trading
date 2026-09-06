@@ -16,7 +16,7 @@ from tradingagents.discovery.pipeline import run_discovery, run_research_pool
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.rag.ingestion import ingest_path
 
-app = FastAPI(title="TradingAgents A-share Agent API", version="1.5")
+app = FastAPI(title="TradingAgents A-share Agent API", version="1.6")
 app.mount("/ui", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="chat-ui")
 
 
@@ -78,7 +78,7 @@ def _conversation_agent() -> ConversationAgent:
 def health():
     return {
         "status": "ok",
-        "version": "1.5",
+        "version": "1.6",
         "conversation_enabled": True,
         "mcp_enabled": bool(DEFAULT_CONFIG.get("mcp_enabled", False)),
         "rag_enabled": bool(DEFAULT_CONFIG.get("rag_enabled", False)),
@@ -263,12 +263,14 @@ async def upload_knowledge(
             config=DEFAULT_CONFIG,
             doc_type=doc_type,
             source_name=file.filename or temp_path.name,
+            publish_date_source="USER",
+            publish_date_confidence=0.5,
+            publish_date_verified=False,
         )
         return {
             "status": "indexed",
             "filename": file.filename,
-            **result,
-        }
+            "pit_notice": (\n                "publish_date is user-supplied and unverified; this document "\n                "is excluded from historical PIT retrieval until verified"\n            ),\n            **result,\n        }
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
