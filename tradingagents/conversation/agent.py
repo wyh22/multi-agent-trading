@@ -938,6 +938,7 @@ class ConversationAgent:
         ticker: str | None = None,
         as_of_date: str | None = None,
         force_mode: str = "auto",
+        capture_evidence: bool = False,
     ) -> dict[str, Any]:
         tid = self.store.ensure_thread(
             thread_id,
@@ -1084,6 +1085,17 @@ class ConversationAgent:
             str(event.get("execution_status", "SUCCESS") or "SUCCESS").upper()
             for event in execution_events
         }
+        evaluation_evidence = [
+            str(event.get("evidence", "") or "")
+            for event in execution_events
+            if str(event.get("evidence", "") or "").strip()
+        ]
+        evaluation_tool_trace = [
+            item
+            for event in execution_events
+            for item in (event.get("tool_trace", []) or [])
+            if isinstance(item, dict)
+        ]
         audit_status = ""
         if version_payload and version_payload.get("kind") == "research_version":
             audit_status = str(
@@ -1248,6 +1260,15 @@ class ConversationAgent:
                 updated.get("metadata", {}).get("active_research_version_id")
                 if isinstance(updated.get("metadata"), dict)
                 else None
+            ),
+            **(
+                {
+                    "evaluation_evidence": evaluation_evidence,
+                    "evaluation_tool_trace": evaluation_tool_trace,
+                    "supervisor_trace": supervisor_trace,
+                }
+                if capture_evidence
+                else {}
             ),
         }
 
