@@ -29,36 +29,143 @@ def _is_excluded_name(name: str) -> bool:
 
 
 def load_sector_components(
-    sectors: pd.DataFrame, as_of_date: str, *,
-    max_per_sector: int=35, component_fetcher: Callable[[str],pd.DataFrame]|None=None
-)->pd.DataFrame:
+    sectors: pd.DataFrame,
+    as_of_date: str,
+    *,
+    max_per_sector: int = 35,
+    component_fetcher: Callable[[str], pd.DataFrame] | None = None,
+) -> pd.DataFrame:
+    """Load SW components with explicit data-quality provenance.
+
+    Fetch diagnostics are stored in DataFrame attrs so callers can distinguish
+    an upstream outage/empty response from a genuinely empty sector.
+    """
+
     if component_fetcher is None:
-        ak=_check_akshare()
-        component_fetcher=lambda symbol: ak.index_component_sw(symbol=symbol)
-    frames=[];as_of=pd.Timestamp(as_of_date).normalize()
-    for _,sector in sectors.iterrows():
-        code=str(sector["sector_code"]).replace(".SI","");name=str(sector["sector_name"])
-        raw=component_fetcher(code)
-        if raw is None or raw.empty:continue
-        df=raw.rename(columns={"证券代码":"code","证券名称":"name","最新权重":"index_weight","计入日期":"entry_date"}).copy()
-        if "code" not in df or "name" not in df:continue
-        df["code"]=df["code"].astype(str).str.extract(r"(\d{6})",expand=False)
-        df=df[df["code"].notna()&~df["name"].map(_is_excluded_name)]
+        ak = _check_akshare()
+        component_fetcher = lambda symbol: ak.index_component_sw(symbol=symbol)
+
+    frames = []
+    unavailable: list[dict[str, str]] = []
+    as_of = pd.Timestamp(as_of_date).normalize()
+
+    for _, sector in sectors.iterrows():
+        code = str(sector["sector_code"]).replace(".SI", "")
+        name = str(sector["sector_name"])
+        try:
+            raw = component_fetcher(code)
+        except Exception as exc:  # noqa: BLE001
+            unavailable.append(
+                {
+                    "sector_code": code,
+                    "sector_name": name,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            continue
+
+        if raw is None or raw.empty:
+            unavailable.append(
+                {
+                    "sector_code": code,
+                    "sector_name": name,
+                    "reason": "empty component response",
+                }
+            )
+            continue
+
+        df = raw.rename(
+            columns={
+                "证券代码": "code",
+                "证券名称": "name",
+                "最新权重": "index_weight",
+                "计入日期": "entry_date",
+            }
+        ).copy()
+        if "code" not in df or "name" not in df:
+            unavailable.append(
+                {
+                    "sector_code": code,
+                    "sector_name": name,
+                    "reason": f"missing required columns: {list(raw.columns)}",
+                }
+            )
+            continue
+
+        df["code"] = df["code"].astype(str).str.extract(r"(\d{6})", expand=False)
+        df = df[df["code"].notna() & ~df["name"].map(_is_excluded_name)]
         if "entry_date" in df:
-            df["entry_date"]=pd.to_datetime(df["entry_date"],errors="coerce")
-            df=df[df["entry_date"].isna()|(df["entry_date"]<=as_of)]
+            df["entry_date"] = pd.to_datetime(df["entry_date"], errors="coerce")
+            df = df[df["entry_date"].isna() | (df["entry_date"] <= as_of)]
         if "index_weight" in df:
-            df["index_weight"]=pd.to_numeric(df["index_weight"],errors="coerce")
-            df=df.sort_values("index_weight",ascending=False)
-        df=df.head(max_per_sector)
-        df["ticker"]=df["code"].map(_canonical);df["sector_code"]=code;df["sector_name"]=name
-        df["sector_score"]=float(sector.get("sector_score",50.0))
-        keep=[c for c in ["ticker","code","name","sector_code","sector_name","sector_score","index_weight","entry_date"] if c in df]
+            df["index_weight"] = pd.to_numeric(
+                df["index_weight"],
+                errors="coerce",
+            )
+            df = df.sort_values("index_weight", ascending=False)
+
+        df = df.head(max_per_sector)
+        if df.empty:
+            unavailable.append(
+                {
+                    "sector_code": code,
+                    "sector_name": name,
+                    "reason": "no PIT-eligible components after filtering",
+                }
+            )
+            continue
+
+        df["ticker"] = df["code"].map(_canonical)
+        df["sector_code"] = code
+        df["sector_name"] = name
+        df["sector_score"] = float(sector.get("sector_score", 50.0))
+        keep = [
+            col
+            for col in [
+                "ticker",
+                "code",
+                "name",
+                "sector_code",
+                "sector_name",
+                "sector_score",
+                "index_weight",
+                "entry_date",
+            ]
+            if col in df
+        ]
         frames.append(df[keep])
-    if not frames:
-        return pd.DataFrame(columns=["ticker","code","name","sector_code","sector_name","sector_score"])
-    out=pd.concat(frames,ignore_index=True)
-    return out.sort_values(["sector_score","index_weight"],ascending=[False,False],na_position="last").drop_duplicates("ticker").reset_index(drop=True)
+
+    if frames:
+        out = pd.concat(frames, ignore_index=True)
+        out = (
+            out.sort_values(
+                ["sector_score", "index_weight"],
+                ascending=[False, False],
+                na_position="last",
+            )
+            .drop_duplicates("ticker")
+            .reset_index(drop=True)
+        )
+    else:
+        out = pd.DataFrame(
+            columns=[
+                "ticker",
+                "code",
+                "name",
+                "sector_code",
+                "sector_name",
+                "sector_score",
+            ]
+        )
+
+    out.attrs["component_snapshot"] = {
+        "requested_sector_count": int(len(sectors)),
+        "loaded_sector_count": int(len(frames)),
+        "unavailable_sectors": unavailable,
+        "requested_as_of_date": str(as_of_date),
+        "status": "COMPLETE" if not unavailable else "PARTIAL",
+    }
+    return out
 
 
 def _safe_return(close: pd.Series,periods: int)->float:
