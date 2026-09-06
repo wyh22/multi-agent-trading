@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Iterable
 
 from .models import KnowledgeChunk
+from .scope import company_scope_id
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,9 @@ class QdrantKnowledgeStore:
             )
         for field, schema in [
             ("ticker", models.PayloadSchemaType.KEYWORD),
+            ("scope_id", models.PayloadSchemaType.KEYWORD),
+            ("scope_type", models.PayloadSchemaType.KEYWORD),
+            ("industry", models.PayloadSchemaType.KEYWORD),
             ("publish_date", models.PayloadSchemaType.DATETIME),
             ("doc_type", models.PayloadSchemaType.KEYWORD),
         ]:
@@ -94,32 +98,58 @@ class QdrantKnowledgeStore:
 
     @staticmethod
     def _filter(
-        ticker: str | list[str],
+        scope_ids: list[str],
         as_of_date: str,
         doc_type: str | None = None,
+        legacy_ticker: str | None = None,
     ):
         from qdrant_client import models
 
-        scopes = [ticker] if isinstance(ticker, str) else list(ticker)
-        scopes = [str(item) for item in scopes if str(item)]
-        ticker_match = (
-            models.MatchValue(value=scopes[0])
-            if len(scopes) == 1
-            else models.MatchAny(any=scopes)
-        )
+        scopes = [str(item) for item in scope_ids if str(item).strip()]
+        if not scopes:
+            raise ValueError("scope_ids cannot be empty")
+
         must = [
-            models.FieldCondition(key="ticker", match=ticker_match),
             models.FieldCondition(
                 key="publish_date",
-                range=models.DatetimeRange(lte=as_of_date[:10] + "T23:59:59Z"),
+                range=models.DatetimeRange(
+                    lte=as_of_date[:10] + "T23:59:59Z"
+                ),
             ),
         ]
         if doc_type:
-            must.append(models.FieldCondition(key="doc_type", match=models.MatchValue(value=doc_type)))
-        return models.Filter(must=must)
+            must.append(
+                models.FieldCondition(
+                    key="doc_type",
+                    match=models.MatchValue(value=doc_type),
+                )
+            )
+
+        should = [
+            models.FieldCondition(
+                key="scope_id",
+                match=models.MatchAny(any=scopes),
+            )
+        ]
+        # Compatibility path for documents indexed before scope_id existed.
+        if legacy_ticker:
+            should.append(
+                models.FieldCondition(
+                    key="ticker",
+                    match=models.MatchValue(value=legacy_ticker),
+                )
+            )
+        return models.Filter(must=must, should=should)
 
     def query_dense(
-        self, query: str, *, ticker: str | list[str], as_of_date: str, limit: int = 20, doc_type: str | None = None
+        self,
+        query: str,
+        *,
+        scope_ids: list[str],
+        as_of_date: str,
+        limit: int = 20,
+        doc_type: str | None = None,
+        legacy_ticker: str | None = None,
     ) -> list[tuple[KnowledgeChunk, float]]:
         if self.embedder is None:
             raise RuntimeError("dense query requires an embedding backend")
@@ -127,7 +157,12 @@ class QdrantKnowledgeStore:
         result = self._client.query_points(
             collection_name=self.collection,
             query=vector,
-            query_filter=self._filter(ticker, as_of_date, doc_type),
+            query_filter=self._filter(
+                scope_ids,
+                as_of_date,
+                doc_type,
+                legacy_ticker=legacy_ticker,
+            ),
             with_payload=True,
             limit=max(1, int(limit)),
         ).points
@@ -139,7 +174,13 @@ class QdrantKnowledgeStore:
         return rows
 
     def scroll_chunks(
-        self, *, ticker: str | list[str], as_of_date: str, limit: int = 1000, doc_type: str | None = None
+        self,
+        *,
+        scope_ids: list[str],
+        as_of_date: str,
+        limit: int = 1000,
+        doc_type: str | None = None,
+        legacy_ticker: str | None = None,
     ) -> list[KnowledgeChunk]:
         rows: list[KnowledgeChunk] = []
         offset = None
@@ -147,7 +188,12 @@ class QdrantKnowledgeStore:
         while remaining > 0:
             points, offset = self._client.scroll(
                 collection_name=self.collection,
-                scroll_filter=self._filter(ticker, as_of_date, doc_type),
+                scroll_filter=self._filter(
+                    scope_ids,
+                    as_of_date,
+                    doc_type,
+                    legacy_ticker=legacy_ticker,
+                ),
                 with_payload=True,
                 with_vectors=False,
                 limit=min(256, remaining),
@@ -236,6 +282,10 @@ class QdrantKnowledgeStore:
                     {
                         "document_key": parent_key,
                         "ticker": chunk.ticker,
+                        "scope_type": chunk.scope_type,
+                        "scope_key": chunk.scope_key,
+                        "scope_id": f"{chunk.scope_type}:{chunk.scope_key}",
+                        "industry": chunk.industry,
                         "title": str(meta.get("file_name") or chunk.title),
                         "publish_date": chunk.publish_date,
                         "doc_type": chunk.doc_type,
@@ -270,3 +320,20 @@ class QdrantKnowledgeStore:
             reverse=True,
         )
         return rows[: max(1, int(limit))]
+
+
+    def resolve_industries(self, ticker: str, limit: int = 8) -> list[str]:
+        """Resolve company industries from already-indexed company documents."""
+
+        documents = self.list_documents(
+            ticker=ticker,
+            limit=max(20, int(limit) * 10),
+        )
+        seen: list[str] = []
+        for row in documents:
+            industry = str(row.get("industry") or "").strip()
+            if industry and industry not in seen:
+                seen.append(industry)
+            if len(seen) >= max(1, int(limit)):
+                break
+        return seen
