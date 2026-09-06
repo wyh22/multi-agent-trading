@@ -117,6 +117,12 @@ def discover(req: DiscoveryRequest):
             top_n=req.top_n,
             ml_model_path=DEFAULT_CONFIG.get("sector_ml_model_path") or None,
             ml_weight=float(DEFAULT_CONFIG.get("sector_ml_weight", 0.5)),
+            style_ic_history_path=(
+                DEFAULT_CONFIG.get("style_ic_history_path") or None
+            ),
+            adaptive_style_strength=float(
+                DEFAULT_CONFIG.get("adaptive_style_strength", 0.5)
+            ),
         )
         return {
             "as_of_date": result.as_of_date,
