@@ -831,10 +831,18 @@ class ConversationAgent:
         observations: list[str] = []
         used_capabilities: list[str] = []
         supervisor_trace: list[dict[str, Any]] = []
+        execution_events: list[dict[str, Any]] = []
         max_supervisor_steps = max(
             1,
             int(self.config.get("conversation_supervisor_steps", 3)),
         )
+
+        task_contract = self.task_contract_builder.build(
+            message,
+            ticker=resolved_ticker,
+            as_of_date=cutoff,
+        )
+        completion = CompletionAssessment()
 
         action = self.supervisor.decide(
             message,
@@ -849,7 +857,7 @@ class ConversationAgent:
         route = ""
         version_payload = None
         for step_index in range(max_supervisor_steps):
-            answer, route, version_payload = self._execute_action(
+            answer, route, version_payload, execution_meta = self._execute_action(
                 action,
                 message=message,
                 tid=tid,
@@ -859,16 +867,33 @@ class ConversationAgent:
                 thread=thread,
             )
             capability_key = f"{action.action}:{action.target or ''}"
+            used_capabilities.append(capability_key)
+            observations.append(
+                f"[{capability_key}]\n{answer[:6000]}"
+            )
+            execution_events.append(dict(execution_meta or {}))
+
+            completion = self.completion_gate.assess(
+                task_contract,
+                observations=observations,
+                used_capabilities=used_capabilities,
+            )
             supervisor_trace.append(
                 {
                     "step": step_index + 1,
                     "action": action.action,
                     "target": action.target,
                     "route": route,
+                    "completion_ratio": completion.completion_ratio,
+                    "complete": completion.complete,
+                    "missing_items": completion.missing_items[:10],
                 }
             )
 
-            terminal = (
+            if completion.complete:
+                break
+
+            terminal_action = (
                 force_mode != "auto"
                 or self.supervisor.structured_llm is None
                 or action.action
@@ -879,22 +904,10 @@ class ConversationAgent:
                 )
                 or version_payload is not None
             )
-            if terminal:
+            if terminal_action:
                 break
 
-            used_capabilities.append(capability_key)
-            observations.append(
-                f"[{capability_key}]\n{answer[:6000]}"
-            )
-
             if step_index + 1 >= max_supervisor_steps:
-                answer = self._synthesize(
-                    message=message,
-                    evidence="\n\n".join(observations),
-                    ticker=resolved_ticker,
-                    as_of_date=cutoff,
-                    research_context=research_context,
-                )
                 route = "supervisor:step_limit"
                 break
 
@@ -910,50 +923,119 @@ class ConversationAgent:
             )
             next_key = f"{next_action.action}:{next_action.target or ''}"
             if next_action.action != "respond" and next_key in used_capabilities:
-                answer = self._synthesize(
-                    message=message,
-                    evidence="\n\n".join(observations),
-                    ticker=resolved_ticker,
-                    as_of_date=cutoff,
-                    research_context=research_context,
-                )
                 route = "supervisor:repeat_guard"
-                action = SupervisorAction(
-                    action="respond",
-                    objective=message,
-                    answer=answer,
-                )
-                supervisor_trace.append(
-                    {
-                        "step": step_index + 2,
-                        "action": "respond",
-                        "target": None,
-                        "route": route,
-                    }
-                )
                 break
             action = next_action
+
+        unavailable_sources = list(
+            dict.fromkeys(
+                str(source)
+                for event in execution_events
+                for source in event.get("unavailable_sources", []) or []
+                if source
+            )
+        )
+        evidence_gaps = list(
+            dict.fromkeys(
+                [
+                    *(str(item) for item in completion.evidence_gaps if item),
+                    *(
+                        str(item)
+                        for event in execution_events
+                        for item in event.get("evidence_gaps", []) or []
+                        if item
+                    ),
+                ]
+            )
+        )
+        execution_statuses = {
+            str(event.get("execution_status", "SUCCESS") or "SUCCESS").upper()
+            for event in execution_events
+        }
+        audit_status = ""
+        if version_payload and version_payload.get("kind") == "research_version":
+            audit_status = str(
+                version_payload.get("payload", {}).get("audit_status", "") or ""
+            ).upper()
+        if not audit_status:
+            for event in reversed(execution_events):
+                if event.get("audit_status"):
+                    audit_status = str(event["audit_status"]).upper()
+                    break
+
+        if audit_status and audit_status != "PASS":
+            response_status = "REVIEW_REQUIRED"
+            user_action = (
+                "本轮研究未通过审计。可继续补充证据、接受部分结论，"
+                "或回滚到最近通过审计的研究版本。"
+            )
+        elif "INVALID_ARGUMENT" in execution_statuses:
+            response_status = "REVIEW_REQUIRED"
+            user_action = "请补充缺失的股票代码、比较标的或必要参数后重试。"
+        elif execution_statuses & {"FAILED", "TIMEOUT", "RATE_LIMIT"} and not completion.complete:
+            response_status = "SYSTEM_ERROR"
+            user_action = "部分能力执行失败；建议重试失败能力或改用本地 fallback。"
+        elif execution_statuses & {"NO_DATA", "UNAVAILABLE"} and not completion.complete:
+            response_status = "DATA_UNAVAILABLE"
+            user_action = "当前数据不足以完整回答；请补充数据源/文档或缩小问题范围。"
+        elif completion.complete:
+            response_status = "COMPLETE"
+            user_action = ""
+        else:
+            response_status = "PARTIAL"
+            user_action = "当前只完成部分要求；可继续补查缺失项。"
+
+        if response_status == "PARTIAL":
+            missing = "、".join(completion.missing_items[:8]) or "仍有未覆盖要求"
+            answer = (
+                f"{answer}\n\n---\n"
+                f"**任务状态：PARTIAL**\n"
+                f"- 完成度：{completion.completion_ratio:.0%}\n"
+                f"- 尚未覆盖：{missing}\n"
+                "- 以上回答仅覆盖已取得证据的部分，不代表已完成全部检索。"
+            )
+        elif response_status == "DATA_UNAVAILABLE":
+            sources = "、".join(unavailable_sources) or "一个或多个必要数据源"
+            answer = (
+                f"{answer}\n\n---\n"
+                f"**任务状态：DATA_UNAVAILABLE**\n"
+                f"- 不可用来源：{sources}\n"
+                "- 系统不会把缺失数据解释为“事实不存在”。"
+            )
+        elif response_status == "SYSTEM_ERROR":
+            answer = (
+                f"{answer}\n\n---\n"
+                "**任务状态：SYSTEM_ERROR**\n"
+                "- 部分工具/Agent 执行失败，当前回答不能视为完整研究结果。"
+            )
+        elif response_status == "REVIEW_REQUIRED":
+            answer = (
+                f"{answer}\n\n---\n"
+                "**任务状态：REVIEW_REQUIRED**\n"
+                f"- {user_action}"
+            )
 
         metadata: dict[str, Any] = {
             "supervisor_action": action.action,
             "supervisor_target": action.target,
             "supervisor_trace": supervisor_trace,
+            "task_contract": task_contract.model_dump(),
+            "completion": completion.model_dump(),
+            "response_status": response_status,
         }
         if version_payload and version_payload.get("kind") == "research_version":
             payload = dict(version_payload.get("payload", {}) or {})
             previous = self.store.get_active_research_version(tid)
-            audit_status = str(payload.get("audit_status", "") or "")
+            audit_status_raw = str(payload.get("audit_status", "") or "")
             version_id = self.store.save_research_version(
                 tid,
                 payload,
-                audit_status=audit_status,
+                audit_status=audit_status_raw,
             )
             metadata["active_research_version_id"] = version_id
 
-            # A failed repair is still persisted for auditability, but it must
-            # not silently replace a previously PASSed conclusion.
             if (
-                audit_status.upper() != "PASS"
+                audit_status_raw.upper() != "PASS"
                 and previous is not None
                 and str(previous.get("audit_status", "")).upper() == "PASS"
             ):
@@ -969,10 +1051,11 @@ class ConversationAgent:
                     )
                     answer = (
                         f"本轮研究版本 V{version_id} 在最大返修轮次后仍未通过审计，"
-                        f"已保留该版本用于追踪，并自动回滚到最近通过审计的 V{restored['id']}。"
+                        f"已保留该版本用于追踪，并自动回滚到最近通过审计的 "
+                        f"V{restored['id']}。"
                         + (f"\n\n{previous_decision}" if previous_decision else "")
+                        + "\n\n**任务状态：REVIEW_REQUIRED**"
                     )
-                # rollback_research_version already restored thread context.
                 self.store.update_context(
                     tid,
                     last_intent="auto_rollback",
@@ -1000,6 +1083,16 @@ class ConversationAgent:
                 metadata=metadata,
             )
 
+        response = ResearchResponse(
+            status=response_status,
+            answer=answer,
+            completed_items=completion.completed_items,
+            missing_items=completion.missing_items,
+            evidence_gaps=evidence_gaps,
+            unavailable_sources=unavailable_sources,
+            audit_status=audit_status,
+            user_action_required=user_action,
+        )
         self.store.append_message(tid, "assistant", answer)
         updated = self.store.get_thread(tid) or {}
         return {
@@ -1009,10 +1102,20 @@ class ConversationAgent:
             "supervisor_target": action.target,
             "ticker": updated.get("current_ticker") or resolved_ticker,
             "as_of_date": updated.get("as_of_date") or cutoff,
-            "answer": answer,
+            "answer": response.answer,
+            "status": response.status,
+            "completed_items": response.completed_items,
+            "missing_items": response.missing_items,
+            "evidence_gaps": response.evidence_gaps,
+            "unavailable_sources": response.unavailable_sources,
+            "audit_status": response.audit_status,
+            "user_action_required": response.user_action_required,
+            "task_contract": task_contract.model_dump(),
+            "completion_ratio": completion.completion_ratio,
             "active_research_version_id": (
                 updated.get("metadata", {}).get("active_research_version_id")
                 if isinstance(updated.get("metadata"), dict)
                 else None
             ),
         }
+
