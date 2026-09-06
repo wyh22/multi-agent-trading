@@ -10,8 +10,7 @@
     .msg{white-space:pre-wrap;margin:10px 0;padding:10px 12px;border-radius:10px;line-height:1.55}.user{background:#ddf4ff;margin-left:18%}.assistant{background:#f3f4f6;margin-right:8%}
     .row{display:flex;gap:8px;margin-top:12px}.row input,.row textarea{flex:1;padding:10px;border:1px solid #d0d7de;border-radius:8px}.row textarea{min-height:72px;resize:vertical}
     button{padding:10px 16px;border:0;border-radius:8px;background:#0969da;color:white;cursor:pointer}button:disabled{opacity:.5}
-    .meta{font-size:12px;color:#57606a;margin:8px 0}.top{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  </style>
+    .meta{font-size:12px;color:#57606a;margin:8px 0}.top{display:grid;grid-template-columns:1fr 1fr;gap:8px}\n    .state{display:inline-block;padding:3px 8px;border-radius:999px;font-weight:600;margin-right:6px}.COMPLETE{background:#dafbe1}.PARTIAL{background:#fff8c5}.REVIEW_REQUIRED{background:#fff1e5}.DATA_UNAVAILABLE{background:#ddf4ff}.SYSTEM_ERROR{background:#ffebe9}\n    #actions{display:flex;gap:8px;margin-top:8px}#actions button{background:#57606a}\n  </style>
 </head>
 <body>
   <h2>TradingAgents A股研究助手</h2>
@@ -19,8 +18,7 @@
   <div class="top"><input id="ticker" placeholder="可选股票代码，如600519.SH" /><input id="date" type="date" /></div>
   <div id="chat"></div>
   <div class="row"><textarea id="message" placeholder="例如：深度分析600519.SH；或：刚才结论最大的风险是什么？"></textarea><button id="send">发送</button></div>
-  <div class="meta" id="status"></div>
-<script>
+  <div class="meta" id="status"></div>\n  <div id="actions"></div>\n<script>
 let threadId=localStorage.getItem('tradingagents_thread_id')||null;
 document.getElementById('date').value=new Date().toISOString().slice(0,10);
 function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;document.getElementById('chat').appendChild(d);d.scrollIntoView({behavior:'smooth'});}
@@ -32,8 +30,31 @@ async function send(){
     const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const data=await r.json();if(!r.ok)throw new Error(data.detail||r.statusText);
     threadId=data.thread_id;localStorage.setItem('tradingagents_thread_id',threadId);add('assistant',data.answer);
-    document.getElementById('status').textContent=`thread=${threadId} · route=${data.route} · ticker=${data.ticker||'未指定'}`;
+    const status=data.status||'COMPLETE';
+    const missing=(data.missing_items||[]).slice(0,5).join('、');
+    document.getElementById('status').innerHTML=
+      `<span class="state ${status}">${status}</span> thread=${threadId} · route=${data.route} · ticker=${data.ticker||'未指定'}`
+      +(missing?` · missing=${missing}`:'');
+    renderActions(data);
   }catch(e){add('assistant','请求失败：'+e.message);document.getElementById('status').textContent='失败';}finally{btn.disabled=false;}
+}
+function renderActions(data){
+  const box=document.getElementById('actions');box.innerHTML='';
+  if(!['PARTIAL','REVIEW_REQUIRED','DATA_UNAVAILABLE'].includes(data.status))return;
+  const cont=document.createElement('button');cont.textContent='继续补查缺失项';
+  cont.onclick=()=>{document.getElementById('message').value='请继续补查上一轮尚未覆盖或缺少证据的项目，并优先处理关键缺口。';send();};
+  box.appendChild(cont);
+  if(data.active_research_version_id){
+    const rollback=document.createElement('button');rollback.textContent='回滚上一版';
+    rollback.onclick=async()=>{
+      try{
+        const r=await fetch(`/chat/${threadId}/rollback`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({version_id:null})});
+        const d=await r.json();if(!r.ok)throw new Error(d.detail||r.statusText);
+        add('assistant',`已回滚到研究版本 V${d.active_version.id}。`);
+      }catch(e){add('assistant','回滚失败：'+e.message);}
+    };
+    box.appendChild(rollback);
+  }
 }
 document.getElementById('send').onclick=send;
 document.getElementById('message').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
