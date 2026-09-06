@@ -90,11 +90,21 @@ MCP remains optional and disabled by default. Local Python tools are the default
 single-process path. MCP is treated as a deployment/integration adapter for remote or
 third-party tools, not as evidence that the Agent architecture itself is better.
 
+## 7. PIT-safe adaptive style weighting
+
+The rule weights remain the default and fallback. If a precomputed walk-forward
+Style IC history is supplied, V1.6 filters rows strictly before as_of_date, computes
+trailing EWMA style signals and shrinks the learned distribution back toward the
+Regime rule prior. Insufficient/missing history falls back to Rule with a warning.
+
+This adds an adaptive mechanism but does not manufacture a valid training history;
+the Style IC history itself still needs proper walk-forward construction and evaluation.
+
 ## Remaining work
 
 The following are deliberately not claimed as solved:
 
-- data-driven/walk-forward style-weight adaptation;
+- proving the adaptive Style IC history improves out-of-sample discovery;
 - semantic/LLM judge for grounding beyond deterministic heuristics;
 - automated trusted publication-date verification from first-party source APIs;
 - UI controls for explicit Human-in-the-loop continuation;
