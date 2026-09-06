@@ -1,6 +1,7 @@
 from langchain_core.messages import HumanMessage
 from pathlib import Path
 
+import pytest
 import tradingagents.dataflows.interface as data_interface
 
 from tradingagents.agents.schemas import AuditIssue, AuditResult
@@ -361,3 +362,77 @@ def test_project_requires_cninfo_fixed_akshare_floor():
     requirements = (root / "requirements.txt").read_text(encoding="utf-8")
     assert "akshare>=1.18.67" in pyproject
     assert "akshare>=1.18.67" in requirements
+
+
+def test_vendor_circuit_breaker_skips_repeated_failed_vendor(monkeypatch):
+    data_interface._reset_vendor_circuit_breakers()
+    calls = {"cninfo": 0, "akshare": 0}
+
+    def broken_cninfo(*_args, **_kwargs):
+        calls["cninfo"] += 1
+        raise ValueError("non-json upstream response")
+
+    def healthy_akshare(*_args, **_kwargs):
+        calls["akshare"] += 1
+        return "fallback-news"
+
+    monkeypatch.setattr(
+        data_interface,
+        "get_vendor",
+        lambda _category, _method=None: "cninfo,akshare",
+    )
+    monkeypatch.setitem(
+        data_interface.VENDOR_METHODS,
+        "get_news",
+        {
+            "cninfo": broken_cninfo,
+            "akshare": healthy_akshare,
+        },
+    )
+
+    assert data_interface.route_to_vendor(
+        "get_news",
+        "601016.SH",
+        "2026-06-01",
+        "2026-09-06",
+    ) == "fallback-news"
+    assert data_interface.route_to_vendor(
+        "get_news",
+        "601016.SH",
+        "2026-06-01",
+        "2026-09-06",
+    ) == "fallback-news"
+    assert calls == {"cninfo": 1, "akshare": 2}
+    data_interface._reset_vendor_circuit_breakers()
+
+
+def test_repair_rejects_single_ticker_company_comparison():
+    with pytest.raises(ValueError, match="at least two distinct tickers"):
+        ConversationSupervisor._validate_action_feasibility(
+            SupervisorAction(
+                action="run_skill",
+                target="company_comparison",
+                arguments={"tickers": ["601016.SH"]},
+            ),
+            repair_mode=True,
+        )
+
+
+def test_repair_fallback_stops_after_relevant_specialists_are_used():
+    supervisor = ConversationSupervisor(
+        NoStructuredLLM(),
+        _specialist_registry(),
+    )
+    action = supervisor.decide(
+        "继续补查主营业务、估值、政策风险和补贴缺口",
+        current_ticker="601016.SH",
+        as_of_date="2026-09-06",
+        history=[],
+        repair_mode=True,
+        used_capabilities=[
+            "delegate_agent:fundamentals",
+            "delegate_agent:news",
+        ],
+    )
+    assert action.action == "respond"
+    assert action.target is None
