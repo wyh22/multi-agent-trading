@@ -37,14 +37,17 @@ def load_adaptive_style_weights(
     trailing_observations: int = 60,
     halflife: float = 12.0,
 ) -> AdaptiveStyleWeights:
-    """Blend regime priors with trailing PIT-safe style performance.
+    """Blend regime priors with trailing, available-at-the-time style IC.
 
     Expected CSV columns:
-      date,momentum_ic,valuation_ic,dividend_ic,liquidity_ic
+      date,available_date,momentum_ic,valuation_ic,dividend_ic,liquidity_ic
 
-    Rows on or after as_of_date are excluded. The adapter intentionally consumes
-    a precomputed walk-forward signal history rather than deriving weights from
-    future returns inside the live discovery path.
+    date is the signal cross-section date. available_date is the date when the
+    forward-return label used to compute that IC had fully matured.
+    Historical research only consumes rows with available_date < as_of_date.
+
+    Missing available_date fails closed to the rule prior because filtering on
+    signal date alone would leak future returns into historical weights.
     """
 
     base = _normalize(base_weights)
@@ -59,19 +62,19 @@ def load_adaptive_style_weights(
         )
 
     frame = pd.read_csv(path)
-    if "date" not in frame.columns:
+    required_meta = {"date", "available_date"}
+    missing_meta = sorted(required_meta - set(frame.columns))
+    if missing_meta:
         return AdaptiveStyleWeights(
             weights=base,
             used=False,
             observations=0,
             signals={},
-            warning="adaptive style history missing date column",
+            warning=(
+                "adaptive style history missing temporal provenance columns: "
+                f"{missing_meta}; fallback to rule weights"
+            ),
         )
-
-    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
-    cutoff = pd.Timestamp(date.fromisoformat(as_of_date[:10]))
-    frame = frame[frame["date"].notna() & (frame["date"] < cutoff)]
-    frame = frame.sort_values("date").tail(max(1, int(trailing_observations)))
 
     required = [f"{style}_ic" for style in STYLES]
     missing = [column for column in required if column not in frame.columns]
@@ -79,10 +82,25 @@ def load_adaptive_style_weights(
         return AdaptiveStyleWeights(
             weights=base,
             used=False,
-            observations=len(frame),
+            observations=0,
             signals={},
             warning=f"adaptive style history missing columns: {missing}",
         )
+
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame["available_date"] = pd.to_datetime(
+        frame["available_date"],
+        errors="coerce",
+    )
+    cutoff = pd.Timestamp(date.fromisoformat(as_of_date[:10]))
+    frame = frame[
+        frame["date"].notna()
+        & frame["available_date"].notna()
+        & (frame["available_date"] < cutoff)
+    ]
+    frame = frame.sort_values(
+        ["available_date", "date"]
+    ).tail(max(1, int(trailing_observations)))
 
     valid_rows = frame[required].apply(pd.to_numeric, errors="coerce")
     observations = int(valid_rows.dropna(how="all").shape[0])
@@ -101,7 +119,10 @@ def load_adaptive_style_weights(
     signals: dict[str, float] = {}
     positive: dict[str, float] = {}
     for style in STYLES:
-        series = pd.to_numeric(valid_rows[f"{style}_ic"], errors="coerce").dropna()
+        series = pd.to_numeric(
+            valid_rows[f"{style}_ic"],
+            errors="coerce",
+        ).dropna()
         if series.empty:
             signal = 0.0
         else:
@@ -120,7 +141,10 @@ def load_adaptive_style_weights(
             used=False,
             observations=observations,
             signals=signals,
-            warning="all trailing style signals are non-positive; fallback to rule weights",
+            warning=(
+                "all trailing style signals are non-positive; "
+                "fallback to rule weights"
+            ),
         )
 
     learned = _normalize(positive)
