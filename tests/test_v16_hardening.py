@@ -4,6 +4,8 @@ from pathlib import Path
 import pandas as pd
 
 from tradingagents.agents.utils.context_compaction import compact_evidence_text
+from tradingagents.capabilities.registry import CapabilityRegistry, CapabilitySpec
+from tradingagents.conversation.agent import ConversationAgent
 from tradingagents.discovery.representatives import select_representative_stocks
 from tradingagents.discovery.style_adapter import load_adaptive_style_weights
 from tradingagents.evaluation.grounding import evaluate_claim_grounding
@@ -15,6 +17,7 @@ from tradingagents.evaluation.routing import (
 )
 from tradingagents.orchestration.completion import CompletionGate, TaskContractBuilder
 from tradingagents.orchestration.schemas import CompletionAssessment, TaskContract
+from tradingagents.orchestration.supervisor import ConversationSupervisor
 from tradingagents.rag.models import KnowledgeChunk
 from tradingagents.rag.retriever import (
     HybridKnowledgeRetriever,
@@ -336,3 +339,116 @@ def test_respond_step_does_not_reassess_evidence_completion():
     ).read_text(encoding="utf-8")
     assert 'if action.action == "respond" and step_index > 0:' in source
     assert "must not change evidence-completion bookkeeping" in source
+
+
+class StructuredContractLLM:
+    def with_structured_output(self, _schema):
+        return self
+
+    def invoke(self, _prompt):
+        return TaskContract(
+            objective="",
+            required_dimensions=["business_operations", "policy_risk"],
+            required_entities=[],
+            critical_requirements=["business_operations"],
+            expected_output="research_answer",
+            can_be_partial=True,
+        )
+
+
+def test_task_contract_builder_returns_structured_result_instead_of_fallback():
+    builder = TaskContractBuilder(StructuredContractLLM())
+    contract = builder.build(
+        "完整分析节能风电业务经营和政策风险",
+        ticker="601016.SH",
+        as_of_date="2026-09-06",
+    )
+    assert contract.objective
+    assert contract.required_dimensions == [
+        "business_operations",
+        "policy_risk",
+    ]
+    assert contract.required_entities == ["601016.SH"]
+
+
+def test_continuation_request_preserves_previous_contract_semantics():
+    assert ConversationAgent._is_continuation_request(
+        "请继续补查上一轮尚未覆盖或缺少证据的项目"
+    )
+    objective = ConversationAgent._continuation_objective(
+        "继续补查缺失项",
+        {
+            "missing_items": [
+                "601016.SH::业务与经营分析",
+                "601016.SH::风险维度-政策风险",
+            ],
+            "evidence_gaps": ["弃风限电数据缺失"],
+        },
+    )
+    assert "业务与经营分析" in objective
+    assert "政策风险" in objective
+    assert "弃风限电" in objective
+    assert "不要重跑完整研究" in objective
+
+
+def test_document_evidence_skill_is_hidden_when_rag_disabled():
+    agent = ConversationAgent.__new__(ConversationAgent)
+    agent.config = {"rag_enabled": False}
+    agent.tools = []
+    registry = agent._build_capability_registry()
+    assert registry.get("document_evidence_analysis") is None
+    assert registry.get("deep_stock_research") is not None
+
+
+def test_document_evidence_skill_is_available_when_rag_enabled():
+    agent = ConversationAgent.__new__(ConversationAgent)
+    agent.config = {"rag_enabled": True}
+    agent.tools = []
+    registry = agent._build_capability_registry()
+    assert registry.get("document_evidence_analysis") is not None
+
+
+def test_repair_fallback_uses_complementary_specialists_without_full_rerun():
+    registry = CapabilityRegistry()
+    for name in ("market", "fundamentals", "news"):
+        registry.register(
+            CapabilitySpec(
+                name=name,
+                kind="agent",
+                description=name,
+                requires_ticker=True,
+            )
+        )
+    registry.register(
+        CapabilitySpec(
+            name="deep_stock_research",
+            kind="skill",
+            description="deep research",
+            requires_ticker=True,
+        )
+    )
+    supervisor = ConversationSupervisor(NoStructuredLLM(), registry)
+    repair_query = (
+        "继续补查：主营业务、装机容量、发电量、政策风险、弃风限电、补贴"
+    )
+    first = supervisor.decide(
+        repair_query,
+        current_ticker="601016.SH",
+        as_of_date="2026-09-06",
+        history=[],
+        repair_mode=True,
+        used_capabilities=[],
+    )
+    assert first.action == "delegate_agent"
+    assert first.target == "fundamentals"
+
+    second = supervisor.decide(
+        repair_query,
+        current_ticker="601016.SH",
+        as_of_date="2026-09-06",
+        history=[],
+        repair_mode=True,
+        used_capabilities=["delegate_agent:fundamentals"],
+    )
+    assert second.action == "delegate_agent"
+    assert second.target == "news"
