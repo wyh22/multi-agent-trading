@@ -12,9 +12,12 @@ from pydantic import BaseModel, Field
 
 from tradingagents.conversation import ConversationAgent, ConversationStore
 from tradingagents.default_config import DEFAULT_CONFIG
+from tradingagents.dataflows.symbol_utils import normalize_a_share_symbol
 from tradingagents.discovery.pipeline import run_discovery, run_research_pool
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.rag.ingestion import ingest_path
+from tradingagents.rag.retriever import HybridKnowledgeRetriever
+from tradingagents.rag.store import QdrantKnowledgeStore
 
 app = FastAPI(title="TradingAgents A-share Agent API", version="1.7")
 app.mount("/ui", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="chat-ui")
@@ -49,6 +52,14 @@ class ResearchPoolRequest(BaseModel):
     strict_pit: bool = True
 
 
+class KnowledgeSearchRequest(BaseModel):
+    ticker: str = Field(examples=["601016.SH"])
+    query: str = Field(min_length=1)
+    as_of_date: str = Field(default_factory=lambda: date.today().isoformat())
+    top_k: int = Field(default=6, ge=1, le=10)
+    doc_type: str | None = None
+
+
 class RollbackRequest(BaseModel):
     version_id: int | None = Field(
         default=None,
@@ -72,6 +83,23 @@ def _conversation_store() -> ConversationStore:
 @functools.lru_cache(maxsize=1)
 def _conversation_agent() -> ConversationAgent:
     return ConversationAgent(DEFAULT_CONFIG, _conversation_store())
+
+
+@functools.lru_cache(maxsize=1)
+def _knowledge_store() -> QdrantKnowledgeStore:
+    return QdrantKnowledgeStore(
+        url=str(DEFAULT_CONFIG.get("qdrant_url", "http://localhost:6333")),
+        collection=str(
+            DEFAULT_CONFIG.get("qdrant_collection", "a_share_knowledge")
+        ),
+        embedder=None,
+        api_key=DEFAULT_CONFIG.get("qdrant_api_key") or None,
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _knowledge_retriever() -> HybridKnowledgeRetriever:
+    return HybridKnowledgeRetriever.from_config(DEFAULT_CONFIG)
 
 
 @app.get("/health")
@@ -259,6 +287,112 @@ def rollback_research(thread_id: str, req: RollbackRequest):
         "thread_id": thread_id,
         "active_version": restored,
     }
+
+
+@app.get("/knowledge/status")
+def knowledge_status():
+    if not DEFAULT_CONFIG.get("rag_enabled", False):
+        return {
+            "status": "disabled",
+            "rag_enabled": False,
+            "collection": DEFAULT_CONFIG.get("qdrant_collection"),
+        }
+    try:
+        info = _knowledge_store().collection_status()
+        return {
+            "status": "ready" if info.get("exists") else "empty",
+            "rag_enabled": True,
+            **info,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "unavailable",
+            "rag_enabled": True,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+
+@app.get("/knowledge/documents")
+def knowledge_documents(ticker: str | None = None, limit: int = 100):
+    if not DEFAULT_CONFIG.get("rag_enabled", False):
+        raise HTTPException(status_code=409, detail="RAG is disabled")
+    try:
+        canonical = normalize_a_share_symbol(ticker) if ticker else None
+        rows = _knowledge_store().list_documents(
+            ticker=canonical,
+            limit=max(1, min(int(limit), 500)),
+        )
+        return {
+            "ticker": canonical,
+            "documents": rows,
+            "count": len(rows),
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@app.post("/knowledge/search")
+def knowledge_search(req: KnowledgeSearchRequest):
+    if not DEFAULT_CONFIG.get("rag_enabled", False):
+        raise HTTPException(status_code=409, detail="RAG is disabled")
+    try:
+        canonical = normalize_a_share_symbol(req.ticker)
+        hits = _knowledge_retriever().search(
+            req.query,
+            ticker=canonical,
+            as_of_date=req.as_of_date,
+            top_k=req.top_k,
+            candidate_k=int(DEFAULT_CONFIG.get("rag_candidate_k", 30)),
+            corpus_limit=int(
+                DEFAULT_CONFIG.get("rag_bm25_corpus_limit", 1000)
+            ),
+            doc_type=req.doc_type,
+            max_chunks_per_doc=int(
+                DEFAULT_CONFIG.get("rag_max_chunks_per_doc", 2)
+            ),
+        )
+        results = []
+        for hit in hits:
+            chunk = hit.chunk
+            metadata = chunk.metadata or {}
+            results.append(
+                {
+                    "evidence_id": (
+                        f"RAG:{chunk.doc_id}#chunk-{chunk.chunk_index}"
+                    ),
+                    "ticker": chunk.ticker,
+                    "title": chunk.title,
+                    "publish_date": chunk.publish_date,
+                    "doc_type": chunk.doc_type,
+                    "source": str(
+                        metadata.get("source_authority") or chunk.source
+                    ),
+                    "url": str(metadata.get("source_url") or chunk.url),
+                    "publish_date_verified": metadata.get(
+                        "publish_date_verified"
+                    ),
+                    "text": chunk.text,
+                    "score": hit.score,
+                    "dense_score": hit.dense_score,
+                    "bm25_score": hit.bm25_score,
+                    "rerank_score": hit.rerank_score,
+                }
+            )
+        return {
+            "ticker": canonical,
+            "as_of_date": req.as_of_date,
+            "query": req.query,
+            "results": results,
+            "count": len(results),
+        }
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
 
 
 @app.post("/knowledge/upload")
