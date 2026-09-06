@@ -124,7 +124,26 @@ def run_discovery(
         metadata={
             "top_n": len(shortlist),
             "sector_universe_size": len(ranked),
-            "style_weights": (\n                adaptive.weights if adaptive and adaptive.used else base_style_weights\n            ),\n            "style_weight_source": (\n                "walk_forward_ic" if adaptive and adaptive.used else "regime_rule"\n            ),\n            "style_weight_observations": (adaptive.observations if adaptive else 0),\n            "style_weight_signals": (adaptive.signals if adaptive else {}),\n            "style_weight_warning": (adaptive.warning if adaptive else ""),\n            "rank_source": (
+            "style_weights": (
+                adaptive.weights
+                if adaptive and adaptive.used
+                else base_style_weights
+            ),
+            "style_weight_source": (
+                "walk_forward_ic"
+                if adaptive and adaptive.used
+                else "regime_rule"
+            ),
+            "style_weight_observations": (
+                adaptive.observations if adaptive else 0
+            ),
+            "style_weight_signals": (
+                adaptive.signals if adaptive else {}
+            ),
+            "style_weight_warning": (
+                adaptive.warning if adaptive else ""
+            ),
+            "rank_source": (
                 "rule+ml"
                 if active_ranker is not None and ml_weight > 0
                 else "rule"
