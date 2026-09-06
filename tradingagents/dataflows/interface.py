@@ -158,7 +158,11 @@ def route_to_vendor(method: str, *args, **kwargs):
         )
 
     if first_error is not None:
-        if category == "macro_data" or method in {"get_global_news", "get_insider_transactions"}:
+        if category == "macro_data" or method in {
+            "get_news",
+            "get_global_news",
+            "get_insider_transactions",
+        }:
             return (
                 f"DATA_UNAVAILABLE: optional {method} could not be retrieved "
                 f"({first_error}). Proceed without it; do not fabricate values."
