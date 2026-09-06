@@ -5,6 +5,7 @@ import pandas as pd
 
 from tradingagents.agents.utils.context_compaction import compact_evidence_text
 from tradingagents.discovery.representatives import select_representative_stocks
+from tradingagents.discovery.style_adapter import load_adaptive_style_weights
 from tradingagents.evaluation.grounding import evaluate_claim_grounding
 from tradingagents.evaluation.routing import (
     RoutingEvalCase,
@@ -202,3 +203,48 @@ def test_service_exposes_v16_status_and_temporal_provenance():
         assert status in conversation
     assert "task_contract" in conversation
     assert "completion_ratio" in conversation
+
+
+def test_adaptive_style_weights_are_pit_safe_and_shrunk_to_rule_prior(tmp_path):
+    history = tmp_path / "style_ic.csv"
+    rows = []
+    for idx in range(20):
+        rows.append(
+            {
+                "date": f"2026-07-{idx + 1:02d}" if idx < 9 else f"2026-08-{idx - 8:02d}",
+                "momentum_ic": 0.01,
+                "valuation_ic": 0.02,
+                "dividend_ic": 0.20,
+                "liquidity_ic": 0.03,
+            }
+        )
+    # Future row must be excluded even though it would strongly favor momentum.
+    rows.append(
+        {
+            "date": "2026-10-01",
+            "momentum_ic": 9.0,
+            "valuation_ic": 0.0,
+            "dividend_ic": 0.0,
+            "liquidity_ic": 0.0,
+        }
+    )
+    pd.DataFrame(rows).to_csv(history, index=False)
+
+    base = {
+        "momentum": 0.40,
+        "valuation": 0.20,
+        "dividend": 0.15,
+        "liquidity": 0.25,
+    }
+    adapted = load_adaptive_style_weights(
+        "2026-09-05",
+        base_weights=base,
+        history_path=history,
+        strength=0.5,
+        min_observations=12,
+    )
+    assert adapted.used is True
+    assert adapted.observations == 20
+    assert adapted.weights["dividend"] > base["dividend"]
+    assert adapted.weights["momentum"] < 0.7
+    assert abs(sum(adapted.weights.values()) - 1.0) < 1e-9
