@@ -54,6 +54,8 @@ class EvaluationTelemetryHandler(BaseCallbackHandler):
             }
         )
         self._run_models: dict[str, str] = {}
+        self._started_llm_runs: set[str] = set()
+        self._started_tool_runs: set[str] = set()
 
     def _start(
         self,
@@ -65,10 +67,13 @@ class EvaluationTelemetryHandler(BaseCallbackHandler):
         model = _model_name(serialized, invocation_params)
         key = str(run_id or "")
         with self._lock:
+            if key and key in self._started_llm_runs:
+                return
+            if key:
+                self._started_llm_runs.add(key)
+                self._run_models[key] = model
             self.llm_calls += 1
             self.by_model[model]["llm_calls"] += 1
-            if key:
-                self._run_models[key] = model
 
     def on_llm_start(
         self,
@@ -150,9 +155,16 @@ class EvaluationTelemetryHandler(BaseCallbackHandler):
         self,
         serialized: dict[str, Any],
         input_str: str,
+        *,
+        run_id: Any = None,
         **kwargs: Any,
     ) -> None:
+        key = str(run_id or "")
         with self._lock:
+            if key and key in self._started_tool_runs:
+                return
+            if key:
+                self._started_tool_runs.add(key)
             self.tool_calls += 1
 
     def snapshot(self) -> dict[str, Any]:
