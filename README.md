@@ -48,7 +48,15 @@
 | Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |
 | Outcome Backtest | Rating vs. realized / benchmark return | 将“研究质量评估”和“市场结果评估”分离 |
 | 服务化 | FastAPI / Chat UI / Docker Compose | 提升可复现性和演示效率 |
-| 可观测性 | LangSmith Trace | 观察 LLM / Tool / Agent 调用链 |
+| 可观测性 | Local Supervisor Trace + Optional LangSmith | UI 直接展示 action/target/route/completion 路径；LangSmith 用于开发期 LLM/Tool 深度追踪 |
+
+## Supervisor Trace 与 LangSmith
+
+Chat UI 会直接展示产品级 Supervisor Trace：每一步 action、target、route、completion ratio 和 missing items。
+这条 Trace 写入本地会话 metadata，因此即使未配置 LangSmith、离线演示或刷新页面，也能恢复用户可理解的执行路径。
+
+LangSmith 仍然保留为可选开发可观测性工具，适合查看更细的 LLM 调用、Tool Span、token、latency 和调试信息。
+两者职责不同：本地 Supervisor Trace 是产品语义和可复现状态的一部分；LangSmith 是外部 observability backend，不作为系统正确性或 UI 可解释性的单点依赖。
 
 ## 系统架构
 
