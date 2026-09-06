@@ -28,6 +28,8 @@ _DIMENSION_QUERIES: tuple[tuple[tuple[str, ...], str], ...] = (
             "竞争",
             "行业地位",
             "市场份额",
+            "客户集中度",
+            "供应商集中度",
             "护城河",
             "competitive",
             "competition",
