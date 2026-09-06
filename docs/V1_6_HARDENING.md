@@ -93,9 +93,11 @@ third-party tools, not as evidence that the Agent architecture itself is better.
 ## 7. PIT-safe adaptive style weighting
 
 The rule weights remain the default and fallback. If a precomputed walk-forward
-Style IC history is supplied, V1.6 filters rows strictly before as_of_date, computes
-trailing EWMA style signals and shrinks the learned distribution back toward the
-Regime rule prior. Insufficient/missing history falls back to Rule with a warning.
+Style IC history is supplied, the history must record both signal date and
+available_date (the date when the forward-return label has matured). Historical
+research only consumes rows with available_date < as_of_date, then computes trailing
+EWMA style signals and shrinks the learned distribution back toward the Regime rule
+prior. Missing availability provenance or insufficient history falls back to Rule.
 
 This adds an adaptive mechanism but does not manufacture a valid training history;
 the Style IC history itself still needs proper walk-forward construction and evaluation.
@@ -107,5 +109,4 @@ The following are deliberately not claimed as solved:
 - proving the adaptive Style IC history improves out-of-sample discovery;
 - semantic/LLM judge for grounding beyond deterministic heuristics;
 - automated trusted publication-date verification from first-party source APIs;
-- UI controls for explicit Human-in-the-loop continuation;
-- measured Single-Agent vs Multi-Agent vs Supervisor benchmark results.
+- measured Single-Agent vs Fixed Deep Research vs Dynamic Supervisor benchmark results.\n  The V1.7 harness exists, but real model/data runs are still required.
