@@ -291,3 +291,61 @@ Coverage 不等于答案质量，也不等于投资结论可信度。最终仍�
 5. 如果能提供行业标签，检索效果会更完整；不提供也不会阻塞 company + shared scope 检索。
 
 项目不会把演示数据伪装成真实证券证据。
+
+
+## 12. 秋招首批推荐 Corpus
+
+为了兼顾演示效果、跨行业泛化和维护成本，首批不做全市场，使用 10 只跨行业代表股票：
+
+~~~text
+600519.SH 贵州茅台   食品饮料
+300750.SZ 宁德时代   电力设备
+002594.SZ 比亚迪     汽车
+600036.SH 招商银行   银行
+600276.SH 恒瑞医药   医药生物
+688981.SH 中芯国际   电子
+000333.SZ 美的集团   家用电器
+601899.SH 紫金矿业   有色金属
+600941.SH 中国移动   通信
+601016.SH 节能风电   公用事业
+~~~
+
+每家公司只选 3 份高价值正式披露：
+
+~~~text
+上一年度年度报告
++
+本年度半年度报告
++
+本年度最新投资者关系活动记录
+  └─ 若没有，则回退本年度第一季度报告
+~~~
+
+以 2026 年秋招为例，即约 10 × 3 = 30 份公司级文档。相比“抓取全部公告”，这批材料更适合展示 RAG 对经营模式、竞争格局、资本开支、风险和行业叙事的补充价值。
+
+股票清单位于：
+
+~~~text
+evaluation/data/autumn_rag_universe_v1.json
+~~~
+
+自动发现并生成 manifest：
+
+~~~bash
+python scripts/bootstrap_autumn_rag.py
+~~~
+
+确认 Qdrant 已启动且 RAG 配置完成后，可以直接发现 + 入库：
+
+~~~bash
+python scripts/bootstrap_autumn_rag.py --ingest
+~~~
+
+脚本使用官方披露索引筛选文档；如果连续多家公司都无法访问披露源，会提前停止，而不是继续浪费时间请求整个 universe。成功后生成：
+
+~~~text
+evaluation/data/autumn_rag_manifest.generated.jsonl
+results/rag_bootstrap/autumn_rag_bootstrap_report.json
+~~~
+
+这只是秋招演示/评测的首批 corpus profile，RAG 核心仍然支持任意 A 股和任意行业。
