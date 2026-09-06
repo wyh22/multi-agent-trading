@@ -430,7 +430,10 @@ class ConversationAgent:
             if isinstance(context_map, dict)
             else ""
         )
-        graph = TradingAgentsGraph(config=self.config)
+        graph = TradingAgentsGraph(
+            config=self.config,
+            callbacks=self.callbacks,
+        )
         state, signal = graph.propagate(
             ticker,
             cutoff,
