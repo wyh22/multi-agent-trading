@@ -6,7 +6,11 @@ from .akshare_financials import (
     get_free_income_statement,
 )
 from .akshare_macro import get_akshare_macro_data
-from .akshare_news import get_akshare_global_news, get_akshare_insider_transactions
+from .akshare_news import (
+    get_akshare_company_news,
+    get_akshare_global_news,
+    get_akshare_insider_transactions,
+)
 from .alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -75,6 +79,7 @@ VENDOR_METHODS = {
     },
     "get_news": {
         "cninfo": get_cninfo_news,
+        "akshare": get_akshare_company_news,
         "alpha_vantage": get_alpha_vantage_news,
     },
     "get_global_news": {
