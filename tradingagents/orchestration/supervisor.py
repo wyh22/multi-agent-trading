@@ -190,10 +190,19 @@ class ConversationSupervisor:
                             target=name,
                             objective=message,
                         )
+                if (
+                    self.registry.get("document_evidence_analysis") is not None
+                    and "run_skill:document_evidence_analysis" not in used
+                ):
+                    return SupervisorAction(
+                        action="run_skill",
+                        target="document_evidence_analysis",
+                        objective=message,
+                    )
                 return SupervisorAction(
                     action="respond",
                     objective=(
-                        "已完成当前可用 specialist 的定向补查；"
+                        "已完成当前可用 specialist/RAG 的定向补查；"
                         "保留仍未覆盖的缺口，不再重跑完整研究或选择无关 Skill。"
                     ),
                 )
@@ -280,7 +289,8 @@ class ConversationSupervisor:
 12. 如果这是上一轮 PARTIAL/REVIEW_REQUIRED 的补查（repair_mode=true），禁止重新运行完整 deep_stock_research；
     应优先选择尚未使用的 specialist Agent 或可用的文档证据能力，只补缺口。
 13. company_comparison 只适用于至少两个明确比较标的；单股票补查禁止选择该 Skill。
-14. repair_mode 下若相关 specialist 已全部使用且没有新的可行 capability，应 respond 并保留缺口，不要为了用满步数而选择无关能力。
+14. repair_mode 下若相关 specialist 已全部使用，且 document_evidence_analysis 可用且尚未使用，应优先用 RAG 补长文档证据；
+    只有 specialist/RAG 都已用尽或不可用时才 respond 并保留缺口，不要为了用满步数而选择无关能力。
 
 repair_mode：{"true" if repair_mode else "false"}
 
