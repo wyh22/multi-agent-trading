@@ -270,7 +270,12 @@ async def upload_knowledge(
         return {
             "status": "indexed",
             "filename": file.filename,
-            "pit_notice": (\n                "publish_date is user-supplied and unverified; this document "\n                "is excluded from historical PIT retrieval until verified"\n            ),\n            **result,\n        }
+            "pit_notice": (
+                "publish_date is user-supplied and unverified; this document "
+                "is excluded from historical PIT retrieval until verified"
+            ),
+            **result,
+        }
     except (ValueError, FileNotFoundError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
