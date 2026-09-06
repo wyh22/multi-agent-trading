@@ -40,14 +40,12 @@ def create_news_analyst(llm, tools=None):
         instrument_context = get_instrument_context_from_state(state)
         candidate_context = get_candidate_context_from_state(state)
 
-        active_tools = list(
-            tools
-            or [
-                get_news,
-                get_global_news,
-                get_macro_indicators,
-            ]
-        )
+        active_tools = tools or [
+            get_news,
+            get_global_news,
+            get_macro_indicators,
+        ]
+        active_tools = list(active_tools)
         if not _needs_insider_transactions(state.get("messages", [])):
             active_tools = [
                 tool
