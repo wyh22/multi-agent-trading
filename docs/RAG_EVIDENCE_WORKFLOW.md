@@ -1,241 +1,293 @@
-# RAG Evidence Workflow
+# Project-wide RAG Knowledge Layer
 
-本项目的 RAG 定位不是“聊天知识库”，而是 **Deep Research 的长文档证据补充层**。
+RAG 在本项目中的定位是 **全项目共享的外部证据层**，不是针对某只股票写死的补丁，也不是“上传一个 PDF 然后聊天”的简单知识库。
 
-结构化行情/财务 API 擅长价格、财务报表和指标；RAG 负责补充：
+它服务于任意 A 股研究，并和结构化数据工具分工：
 
-- 主营业务构成、装机容量、发电量、利用小时、运营规模；
-- 项目布局、竞争优势、行业地位；
-- 年报/半年报中的风险披露；
-- 风电行业政策、消纳/弃风限电、补贴与电价机制；
-- 其他只能从公告、财报和政策原文获得的长文本证据。
+- 行情/技术指标：优先结构化 Tool；
+- 财务三表/基础财务指标：优先 Fundamentals Tool；
+- 长文档、公司经营细节、竞争格局、行业材料、监管政策、重大事项原文：优先 RAG；
+- Deep Research / Repair Loop：根据缺失证据按需调用 RAG。
 
-## 1. 推荐的最小知识库
+## 1. 知识库分层
 
-针对单只股票，先准备少量高价值官方文档即可，不需要一开始抓全量公告。
+每份文档属于一个通用 scope，而不是写死到某个行业。
 
-公司级（ticker=股票代码）建议：
+### company
 
-1. 最近一份年度报告；
-2. 最近一份半年报；
-3. 最近 1~2 份季度报告；
-4. 最近的发电量/经营数据公告；
-5. 重要项目建设、投产、并网公告；
-6. 与补贴应收、资产减值、重大风险有关的正式公告。
-
-共享政策级（ticker=GLOBAL）建议：
-
-1. 国家能源局/发改委等风电、新能源规划；
-2. 新能源消纳、弃风限电相关政策/统计；
-3. 可再生能源补贴、电价机制相关政策；
-4. 对风电运营企业有普遍影响的行业规则。
-
-GLOBAL 文档只入库一次，检索任意公司时会自动与该公司的文档一起召回。
-
-## 2. 本地启动 Qdrant
-
-只需要 RAG 时，无需先启 MCP：
-
-~~~bash
-docker run -d \
-  --name tradingagents-qdrant \
-  -p 6333:6333 \
-  -v tradingagents_qdrant:/qdrant/storage \
-  qdrant/qdrant:latest
-~~~
-
-.env：
+公司级文档，scope key 是标准股票代码，例如：
 
 ~~~text
-TRADINGAGENTS_RAG_ENABLED=true
-TRADINGAGENTS_QDRANT_URL=http://localhost:6333
-TRADINGAGENTS_QDRANT_COLLECTION=a_share_knowledge
-TRADINGAGENTS_RAG_EMBEDDING_BACKEND=fastembed
-TRADINGAGENTS_RAG_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
-TRADINGAGENTS_RAG_RERANKER_ENABLED=true
-TRADINGAGENTS_RAG_MAX_CHUNKS_PER_DOC=2
-TRADINGAGENTS_RAG_REPAIR_MAX_QUERIES=4
+company:600000.SH
 ~~~
 
-MCP 可以继续保持：
+典型内容包括年报、半年报、季报、公司公告、投资者关系记录、重大公司行动和公司 IR 正式材料。
+
+### industry
+
+行业级文档：
 
 ~~~text
-TRADINGAGENTS_MCP_ENABLED=false
+industry:银行
+industry:半导体
+industry:医药生物
 ~~~
 
-RAG 和 MCP 是两层独立能力。
+用于行业供需、竞争格局、产业链、行业统计、行业标准和专项政策。公司文档可以附带 industry 元数据，检索某只股票时系统会自动把已知行业 scope 加入召回范围。
 
-## 3. 入库官方文档
+### market
 
-### 3.1 已下载到本地的官方 PDF
+A 股全市场共享材料：
 
-只有在你已经核验官方披露日后，才使用 --publish-date-verified：
+~~~text
+market:CN_A
+~~~
+
+### macro
+
+宏观材料：
+
+~~~text
+macro:CN
+~~~
+
+### regulation
+
+全国性监管/法规材料：
+
+~~~text
+regulation:CN
+~~~
+
+因此单股检索不是只查单一股票向量，而是：
+
+~~~text
+company:<ticker>
++ industry:<known industry>
++ market:CN_A
++ macro:CN
++ regulation:CN
+~~~
+
+并全部受 PIT 截止日期约束。
+
+## 2. 通用股票研究检索维度
+
+Repair query planner 使用通用股票分析维度，不包含任何具体股票或行业规则：
+
+- 主营业务 / 业务模式 / 产品服务 / 产能产量 / 销量订单 / 客户供应商；
+- 行业竞争 / 市场份额 / 核心竞争力 / 护城河；
+- 财务质量 / 现金流 / 盈利质量 / 资产负债；
+- 估值 / 可比公司；
+- 增长驱动 / 资本开支 / 在建工程 / 指引；
+- 行业周期 / 供需 / 政策 / 监管 / 产业链；
+- 并购重组 / 回购 / 增减持 / 股权激励 / 公司治理；
+- 经营、行业、政策、财务和合规风险。
+
+Completion Gate 的原始 missing item 也会保留为检索 query，因此即使问题属于冷门行业，也不会被固定 taxonomy 覆盖掉。
+
+## 3. 检索链
+
+~~~text
+User / Missing Items
+        ↓
+Generic Query Expansion
+        ↓
+Hierarchical Scope Resolution
+company + industry + market + macro + regulation
+        ↓
+PIT Filter
+publish_date <= as_of_date
+        ↓
+Dense Retrieval + BM25
+        ↓
+RRF
+        ↓
+Optional Cross-Encoder Rerank
+        ↓
+Parent-document Diversity
+        ↓
+Evidence Pack
+        ↓
+Fundamentals / News / Supervisor / Auditor
+~~~
+
+同一个长 PDF 默认最多占据少量 Top-K 位置，避免一个年报的多个相邻页面挤掉其他来源。
+
+每条返回证据包含：
+
+~~~text
+evidence_id
+scope_type / scope_key
+publish_date
+source_authority
+publish_date_verified
+original source URL
+doc_type
+excerpt
+retrieval scores
+~~~
+
+## 4. PIT 数据治理
+
+历史研究默认 fail closed：
+
+- publish_date <= as_of_date；
+- 新上传且 publish_date_verified=false 的文档不允许进入历史 cutoff；
+- 只有确认了真实披露/生效日期，才应设置 publish_date_verified=true；
+- 当前日期研究可以使用未核验上传文档，但会保留 unverified provenance；
+- company / industry / market / macro / regulation 全部遵守同一 PIT 规则。
+
+不要为了让 RAG 能搜到而随意把日期标成 verified。
+
+## 5. 项目级批量入库：Manifest
+
+项目不要求每只股票改代码。统一使用 JSONL manifest 批量描述语料。每行支持三种来源之一：
+
+~~~text
+file    本地 PDF/DOCX/TXT/MD
+url     可直接下载的 HTTP/HTTPS 文档
+text    已经解析好的正文
+~~~
+
+核心字段：
+
+~~~text
+scope_type
+scope_key
+ticker
+industry
+title
+file / url / text
+publish_date
+doc_type
+publish_date_source
+publish_date_confidence
+publish_date_verified
+source_authority
+source_url
+~~~
+
+其中 company scope 填 ticker；industry scope 填 scope_key/industry；market/macro/regulation 不需要 ticker。industry 对公司文档是可选但推荐字段，用于自动关联行业知识。
+
+示例模板：
 
 ~~~bash
-python scripts/rag_ingest.py \
-  --file ./knowledge/601016/annual_report.pdf \
-  --ticker 601016.SH \
-  --publish-date YYYY-MM-DD \
-  --doc-type annual_report \
-  --publish-date-source CNINFO \
-  --publish-date-confidence 1.0 \
-  --publish-date-verified \
-  --source-authority CNINFO \
-  --source-url "官方原文URL"
+cp examples/rag_corpus_manifest.example.jsonl evaluation/data/my_rag_manifest.jsonl
 ~~~
 
-### 3.2 直接从官方 URL 下载并入库
+将示例内容替换为真实文档后：
 
 ~~~bash
-python scripts/rag_ingest.py \
-  --url "官方PDF URL" \
-  --ticker 601016.SH \
-  --publish-date YYYY-MM-DD \
-  --doc-type operating_announcement \
-  --publish-date-source CNINFO \
-  --publish-date-confidence 1.0 \
-  --publish-date-verified \
-  --source-authority CNINFO
+python scripts/rag_ingest.py --manifest evaluation/data/my_rag_manifest.jsonl
 ~~~
 
-### 3.3 行业政策只入库一次
+这是项目级批量入口，不需要为每家公司写 Python 逻辑。
+
+## 6. 单文件和目录仍然支持
+
+单只公司文档：
 
 ~~~bash
-python scripts/rag_ingest.py \
-  --url "官方政策PDF URL" \
-  --ticker GLOBAL \
-  --publish-date YYYY-MM-DD \
-  --doc-type policy \
-  --publish-date-source NEA \
-  --publish-date-confidence 1.0 \
-  --publish-date-verified \
-  --source-authority "国家能源局"
+python scripts/rag_ingest.py   --file ./annual_report.pdf   --scope-type company   --ticker 600000.SH   --industry 银行   --publish-date YYYY-MM-DD   --doc-type annual_report
 ~~~
 
-## 4. PIT 规则
+行业资料：
 
-历史研究不会仅因为“用户填了一个日期”就相信该日期。
+~~~bash
+python scripts/rag_ingest.py   --file ./industry_report.pdf   --scope-type industry   --scope-key 银行   --publish-date YYYY-MM-DD   --doc-type industry_report
+~~~
 
-- publish_date_verified=false：历史 cutoff 下 fail closed，不进入检索结果；
-- publish_date_verified=true：可以用于其披露日之后的历史研究；
-- 当前日期研究可以使用未核验上传文档，但结果会标记 unverified；
-- GLOBAL 文档同样受 publish_date <= as_of_date 约束。
+全国性监管材料：
 
-因此 --publish-date-verified 不是方便开关，而是数据治理声明。
+~~~bash
+python scripts/rag_ingest.py   --file ./regulation.pdf   --scope-type regulation   --scope-key CN   --publish-date YYYY-MM-DD   --doc-type regulation
+~~~
 
-## 5. 不用 LLM，先检查知识库
+这些只是 CLI 用法示例，核心代码没有任何特定股票或行业绑定。
 
-为了避免反复运行完整 Agent 浪费时间，先用便宜的确定性接口检查。
+## 7. 推荐语料层级
 
-### 状态
+对进入研究 universe 的股票，公司层优先覆盖最近 2~3 年年度报告、最近半年报/季报、最近 6~12 个月的重要公告、投资者关系/业绩说明材料以及重大公司行动和风险公告。
+
+行业层优先覆盖行业政策和标准、行业供需/产能/价格/竞争格局材料、权威行业统计、监管机构或行业协会材料。
+
+市场/宏观/监管层只需建立一份共享库，包括 A 股市场制度与重要监管规则、宏观经济和利率/信用环境材料，以及对上市公司普遍适用的重要政策。
+
+不建议把大量低质量自媒体、论坛或无来源转载直接塞进主证据库。
+
+## 8. Knowledge API：先测 RAG，不必反复跑 LLM
+
+状态：
 
 ~~~bash
 curl http://127.0.0.1:8000/knowledge/status
 ~~~
 
-### 查看某只股票已入库文档
+查看全部或按 scope 查看文档：
 
 ~~~bash
-curl "http://127.0.0.1:8000/knowledge/documents?ticker=601016.SH"
+curl "http://127.0.0.1:8000/knowledge/documents?scope_type=industry"
 ~~~
 
-### 直接检索经营证据
+查看某公司的 corpus coverage：
 
 ~~~bash
-curl -X POST http://127.0.0.1:8000/knowledge/search \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "ticker":"601016.SH",
-    "query":"主营业务 装机容量 发电量 利用小时 运营规模",
-    "as_of_date":"2026-09-06",
-    "top_k":6
-  }'
+curl "http://127.0.0.1:8000/knowledge/coverage?ticker=600000.SH"
 ~~~
 
-### 直接检索政策/弃风/补贴
+直接检索，不调用 Deep Research：
 
 ~~~bash
-curl -X POST http://127.0.0.1:8000/knowledge/search \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "ticker":"601016.SH",
-    "query":"风电 政策 弃风限电 消纳 补贴 国补",
-    "as_of_date":"2026-09-06",
-    "top_k":6
-  }'
+curl -X POST http://127.0.0.1:8000/knowledge/search   -H 'Content-Type: application/json'   -d '{"ticker":"600000.SH","query":"主营业务 竞争格局 现金流 行业政策 主要风险","as_of_date":"2026-09-06","top_k":8}'
 ~~~
 
-第二个查询会同时搜索：
+只有 Knowledge API 的结果稳定后，才需要做一次端到端 Agent 验证。
+
+## 9. 与多 Agent 的集成
+
+RAG 是共享工具：
 
 ~~~text
-601016.SH company documents
-+
-__GLOBAL__ shared policy documents
+Fundamentals Agent ─┐
+News Agent ─────────┼─> search_company_knowledge
+Supervisor Skill ───┘
 ~~~
 
-## 6. 检索链
-
-~~~text
-Missing Items
-    ↓
-deterministic repair query expansion
-    ↓
-Company scope + GLOBAL scope
-    ↓
-Dense retrieval + BM25
-    ↓
-RRF
-    ↓
-optional cross-encoder rerank
-    ↓
-parent-document diversity cap
-    ↓
-Evidence Pack
-~~~
-
-同一个长年报的多个页面不会再轻易占满全部 Top-K；默认每个 parent document 最多返回 2 个 chunk。
-
-每条证据带稳定标识：
-
-~~~text
-evidence_id=RAG:<doc_id>#chunk-<index>
-publish_date
-source authority
-verified/unverified/legacy
-original source URL
-~~~
-
-便于 Grounding/Auditor 追踪。
-
-## 7. 与 repair loop 的关系
-
-RAG 启用后，补查顺序设计为：
+完整研究后如果存在文档型证据缺口：
 
 ~~~text
 PARTIAL
   ↓
-Fundamentals / News specialist
+specialist repair
   ↓
-仍有业务经营、政策等长文档缺口
+仍有缺口
   ↓
 document_evidence_analysis
   ↓
-focused multi-query RAG Evidence Pack
+multi-query hierarchical RAG
   ↓
 Completion Gate
 ~~~
 
-不会为了补缺口重新跑完整 Deep Research，也不会使用 company_comparison 之类无关能力。
+RAG 不替代行情、财务 API，也不会为了“用了 RAG”而强制每个问题都走向量库。
 
-## 8. 什么时候才跑完整 Agent
+## 10. Corpus Coverage
 
-建议只在以下条件满足后做一次端到端验证：
+/knowledge/coverage 只用于发现语料缺口，例如是否有 annual reporting、interim reporting、recent company events、公司文档是否带行业元数据，以及 verified / unverified 文档数量。
 
-- /knowledge/status 为 ready；
-- /knowledge/documents 能看到预期公司文档；
-- 两个 /knowledge/search 查询都能返回合理证据；
-- 证据披露日和来源核验无误。
+Coverage 不等于答案质量，也不等于投资结论可信度。最终仍由 Grounding / Completion / Auditor 判断。
 
-此时再运行一次 Deep Research + “继续补查”，观察 Completion/Evidence Coverage 是否改善即可。
+## 11. 你真正需要准备的东西
 
-这比反复运行 LLM/Agent Smoke Test 更省时间，也更容易定位问题。
+代码层不需要你逐股修改。要让 RAG 产生真实价值，必须有真实 corpus。
+
+最低要求：
+
+1. 启动 Qdrant；
+2. 开启 TRADINGAGENTS_RAG_ENABLED=true；
+3. 准备一份项目级 manifest，或者一个已整理的官方文档目录；
+4. 对文档提供真实披露日和来源；
+5. 如果能提供行业标签，检索效果会更完整；不提供也不会阻塞 company + shared scope 检索。
+
+项目不会把演示数据伪装成真实证券证据。
