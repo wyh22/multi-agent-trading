@@ -41,7 +41,7 @@
 | PIT 数据治理 | 披露日/发布日期截止过滤 | 降低未来函数与历史穿越 |
 | Decision Auditor | PASS / REVISE + repair_target | 检查无依据推断，并把缺失证据定向路由给责任 Agent |
 | Optional MCP Adapter | 默认关闭；Streamable HTTP + Local fallback + allowlist | 仅在远程/跨进程/第三方工具接入时作为部署边界，不是 Agent 核心依赖 |
-| Shared Hybrid RAG | Dense + BM25 + RRF + Reranker + Temporal Provenance | 未验证发布日期文档不会进入历史 PIT 检索 |
+| Project-wide Hybrid RAG | company / industry / market / macro / regulation 分层 + Dense + BM25 + RRF + Reranker + Temporal Provenance | 任意 A 股按层级召回长文档证据；未验证发布日期文档不会进入历史 PIT 检索 |
 | 多轮会话 | Supervisor + Task Contract + thread_id + SQLite | 返回 COMPLETE / PARTIAL / REVIEW_REQUIRED / DATA_UNAVAILABLE / SYSTEM_ERROR，并支持 HITL 继续补查 |
 | Research Rollback | Immutable SQLite research versions | 恢复上一版/指定版本；与 crash checkpoint 分离 |
 | Architecture Benchmark | Single Agent / Fixed Deep Research / Dynamic Supervisor + Routing / Grounding / Completion / PIT / Token / Latency | 用同条件实验检验复杂编排是否真的值得 |
@@ -436,14 +436,19 @@ Portfolio Manager 负责形成最终观点，本身不适合作为自己的校�
 
 ### 为什么要做 PIT-aware RAG
 
-普通 RAG 只关注“相关不相关”，历史投研还必须回答“当时能不能看到”。因此检索同时约束：
+普通 RAG 只关注“相关不相关”，历史投研还必须回答“当时能不能看到”。当前知识层按通用 scope 组织：
 
 ```text
-ticker == target
+company:<ticker>
++ industry:<known industry>
++ market:CN_A
++ macro:CN
++ regulation:CN
+
 publish_date <= as_of_date
 ```
 
-并在向量检索之后再次做日期防御性检查。V1.5 将 RAG 升级为共享 Knowledge Capability，News、Fundamentals 与 Conversation Supervisor 都可按权限调用；用户文档可通过 `/knowledge/upload` 摄取 PDF、DOCX、TXT 与 Markdown，其中 PDF chunk 保留页码元数据。
+因此 RAG 不是针对单只股票写死的文档库，而是全项目共享证据层。公司年报/公告、行业材料、宏观与监管原文可以统一进入 Qdrant；检索时按当前 ticker 自动组合可见 scope，并在向量检索后再次做 PIT 日期检查。News、Fundamentals 与 Conversation Supervisor 共用同一 Knowledge Capability；批量语料通过 manifest 驱动，无需逐股修改代码。详见 [docs/RAG_EVIDENCE_WORKFLOW.md](docs/RAG_EVIDENCE_WORKFLOW.md)。
 
 ## 数据源边界
 
@@ -512,6 +517,7 @@ Supervisor 或 Adaptive Style 已经带来确定的准确率、收益率或成�
 - [ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)：设计取舍、代码所有权边界、面向工程评审的实现说明
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
 - [MCP_RAG_DOCKER_GUIDE.md](MCP_RAG_DOCKER_GUIDE.md)：MCP、Qdrant Hybrid RAG、Docker
+- [RAG_EVIDENCE_WORKFLOW.md](docs/RAG_EVIDENCE_WORKFLOW.md)：项目级 company / industry / market / macro / regulation 分层知识库、Manifest 批量入库与 PIT 检索
 - [docs/V1_7_BENCHMARK.md](docs/V1_7_BENCHMARK.md)：三架构 Benchmark、Telemetry、Grounding/Completion/PIT 指标与 PIT-safe Style IC
 - [docs/V1_6_HARDENING.md](docs/V1_6_HARDENING.md)：Task Contract、Completion、显式降级、Temporal Provenance、Evaluation 与 remaining boundaries
 - [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback

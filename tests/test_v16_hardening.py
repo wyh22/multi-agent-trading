@@ -382,12 +382,12 @@ def test_continuation_request_preserves_previous_contract_semantics():
                 "601016.SH::业务与经营分析",
                 "601016.SH::风险维度-政策风险",
             ],
-            "evidence_gaps": ["弃风限电数据缺失"],
+            "evidence_gaps": ["行业竞争格局证据缺失"],
         },
     )
     assert "业务与经营分析" in objective
     assert "政策风险" in objective
-    assert "弃风限电" in objective
+    assert "行业竞争格局" in objective
     assert "不要重跑完整研究" in objective
 
 
@@ -429,7 +429,7 @@ def test_repair_fallback_uses_complementary_specialists_without_full_rerun():
     )
     supervisor = ConversationSupervisor(NoStructuredLLM(), registry)
     repair_query = (
-        "继续补查：主营业务、装机容量、发电量、政策风险、弃风限电、补贴"
+        "继续补查：主营业务、产能订单、行业竞争、政策监管、估值和主要风险"
     )
     first = supervisor.decide(
         repair_query,
@@ -488,3 +488,38 @@ def test_structured_completion_is_sanitized_before_status_mapping():
     assert result.complete is False
     assert result.completion_ratio == 0.5
     assert result.missing_items == ["601016.SH::business_operations"]
+
+
+def test_repair_fallback_uses_rag_after_relevant_specialists_are_exhausted():
+    registry = CapabilityRegistry()
+    for name in ("fundamentals", "news"):
+        registry.register(
+            CapabilitySpec(
+                name=name,
+                kind="agent",
+                description=name,
+                requires_ticker=True,
+            )
+        )
+    registry.register(
+        CapabilitySpec(
+            name="document_evidence_analysis",
+            kind="skill",
+            description="PIT-aware document evidence",
+            requires_ticker=True,
+        )
+    )
+    supervisor = ConversationSupervisor(NoStructuredLLM(), registry)
+    action = supervisor.decide(
+        "继续补查：主营业务、装机容量、政策风险、弃风限电、补贴",
+        current_ticker="601016.SH",
+        as_of_date="2026-09-06",
+        history=[],
+        repair_mode=True,
+        used_capabilities=[
+            "delegate_agent:fundamentals",
+            "delegate_agent:news",
+        ],
+    )
+    assert action.action == "run_skill"
+    assert action.target == "document_evidence_analysis"

@@ -55,6 +55,9 @@ def chunk_document(
                 url=document.url,
                 doc_type=document.doc_type,
                 chunk_index=idx,
+                scope_type=document.scope_type,
+                scope_key=document.scope_key,
+                industry=document.industry,
                 metadata=document.metadata,
             )
         )

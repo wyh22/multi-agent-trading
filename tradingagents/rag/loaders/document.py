@@ -14,9 +14,13 @@ def _file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _source_meta(path: Path, source_name: str | None) -> tuple[str, str]:
+def _source_meta(
+    path: Path,
+    source_name: str | None,
+    source_url: str | None = None,
+) -> tuple[str, str]:
     display_name = Path(source_name or path.name).name
-    return display_name, f"upload://{display_name}"
+    return display_name, str(source_url or f"upload://{display_name}")
 
 
 def _date_meta(
@@ -43,13 +47,15 @@ def _pdf_documents(
     publish_date_source: str,
     publish_date_confidence: float,
     publish_date_verified: bool,
+    source_authority: str | None,
+    source_url: str | None,
 ) -> list[KnowledgeDocument]:
     try:
         import fitz
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("PDF 解析需要 PyMuPDF，请安装 agent 可选依赖") from exc
 
-    display_name, source_uri = _source_meta(path, source_name)
+    display_name, source_uri = _source_meta(path, source_name, source_url)
     title = Path(display_name).stem
     documents: list[KnowledgeDocument] = []
     with fitz.open(path) as pdf:
@@ -65,12 +71,14 @@ def _pdf_documents(
                     title=f"{title} - 第 {page_no} 页",
                     text=text,
                     publish_date=publish_date,
-                    source="uploaded-pdf",
+                    source=str(source_authority or "uploaded-pdf"),
                     url=source_uri,
                     doc_type=doc_type,
                     metadata={
                         "file_name": display_name,
                         "file_hash": file_hash,
+                        "source_authority": str(source_authority or ""),
+                        "source_url": str(source_url or ""),
                         "page": page_no,
                         **_date_meta(
                             source=publish_date_source,
@@ -96,13 +104,15 @@ def _docx_documents(
     publish_date_source: str,
     publish_date_confidence: float,
     publish_date_verified: bool,
+    source_authority: str | None,
+    source_url: str | None,
 ) -> list[KnowledgeDocument]:
     try:
         from docx import Document
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("DOCX 解析需要 python-docx，请安装 agent 可选依赖") from exc
 
-    display_name, source_uri = _source_meta(path, source_name)
+    display_name, source_uri = _source_meta(path, source_name, source_url)
     doc = Document(path)
     parts: list[str] = []
     heading_path: list[str] = []
@@ -136,12 +146,14 @@ def _docx_documents(
             title=Path(display_name).stem,
             text=text,
             publish_date=publish_date,
-            source="uploaded-docx",
+            source=str(source_authority or "uploaded-docx"),
             url=source_uri,
             doc_type=doc_type,
             metadata={
                 "file_name": display_name,
                 "file_hash": file_hash,
+                "source_authority": str(source_authority or ""),
+                "source_url": str(source_url or ""),
                 "heading_hint": heading_path[-1] if heading_path else "",
                 **_date_meta(
                     source=publish_date_source,
@@ -164,11 +176,13 @@ def _text_documents(
     publish_date_source: str,
     publish_date_confidence: float,
     publish_date_verified: bool,
+    source_authority: str | None,
+    source_url: str | None,
 ) -> list[KnowledgeDocument]:
     text = path.read_text(encoding="utf-8", errors="ignore").strip()
     if not text:
         raise ValueError("文档为空")
-    display_name, source_uri = _source_meta(path, source_name)
+    display_name, source_uri = _source_meta(path, source_name, source_url)
 
     return [
         KnowledgeDocument(
@@ -177,12 +191,14 @@ def _text_documents(
             title=Path(display_name).stem,
             text=text,
             publish_date=publish_date,
-            source="uploaded-text",
+            source=str(source_authority or "uploaded-text"),
             url=source_uri,
             doc_type=doc_type,
             metadata={
                 "file_name": display_name,
                 "file_hash": file_hash,
+                "source_authority": str(source_authority or ""),
+                "source_url": str(source_url or ""),
                 **_date_meta(
                     source=publish_date_source,
                     confidence=publish_date_confidence,
@@ -203,6 +219,8 @@ def load_documents(
     publish_date_source: str = "USER",
     publish_date_confidence: float = 0.5,
     publish_date_verified: bool = False,
+    source_authority: str | None = None,
+    source_url: str | None = None,
 ) -> list[KnowledgeDocument]:
     """Load PDF/DOCX/MD/TXT into normalized PIT-aware knowledge documents."""
 
@@ -220,6 +238,8 @@ def load_documents(
         "publish_date_source": publish_date_source,
         "publish_date_confidence": publish_date_confidence,
         "publish_date_verified": publish_date_verified,
+        "source_authority": source_authority,
+        "source_url": source_url,
     }
     if suffix == ".pdf":
         return _pdf_documents(source, **kwargs)

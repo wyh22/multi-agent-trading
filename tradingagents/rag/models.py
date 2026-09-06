@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
+from tradingagents.rag.scope import normalize_scope
+
 
 def normalize_publish_date(value: str) -> str:
     """Normalize supported date/datetime strings to YYYY-MM-DD."""
@@ -30,10 +32,23 @@ class KnowledgeDocument:
     source: str = "local"
     url: str = ""
     doc_type: str = "document"
+    scope_type: str = "company"
+    scope_key: str = ""
+    industry: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         object.__setattr__(self, "publish_date", normalize_publish_date(self.publish_date))
+        scope = normalize_scope(
+            scope_type=self.scope_type,
+            scope_key=self.scope_key or None,
+            ticker=self.ticker or None,
+            industry=self.industry or None,
+        )
+        object.__setattr__(self, "ticker", scope.ticker)
+        object.__setattr__(self, "scope_type", scope.scope_type)
+        object.__setattr__(self, "scope_key", scope.scope_key)
+        object.__setattr__(self, "industry", scope.industry)
         if not self.doc_id.strip():
             raise ValueError("doc_id 不能为空")
         if not self.ticker.strip():
@@ -54,10 +69,23 @@ class KnowledgeChunk:
     url: str = ""
     doc_type: str = "document"
     chunk_index: int = 0
+    scope_type: str = "company"
+    scope_key: str = ""
+    industry: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         object.__setattr__(self, "publish_date", normalize_publish_date(self.publish_date))
+        scope = normalize_scope(
+            scope_type=self.scope_type,
+            scope_key=self.scope_key or None,
+            ticker=self.ticker or None,
+            industry=self.industry or None,
+        )
+        object.__setattr__(self, "ticker", scope.ticker)
+        object.__setattr__(self, "scope_type", scope.scope_type)
+        object.__setattr__(self, "scope_key", scope.scope_key)
+        object.__setattr__(self, "industry", scope.industry)
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -71,6 +99,10 @@ class KnowledgeChunk:
             "url": self.url,
             "doc_type": self.doc_type,
             "chunk_index": self.chunk_index,
+            "scope_type": self.scope_type,
+            "scope_key": self.scope_key,
+            "scope_id": f"{self.scope_type}:{self.scope_key}",
+            "industry": self.industry,
             "metadata": self.metadata,
         }
 
@@ -87,6 +119,9 @@ class KnowledgeChunk:
             url=str(payload.get("url", "")),
             doc_type=str(payload.get("doc_type", "document")),
             chunk_index=int(payload.get("chunk_index", 0) or 0),
+            scope_type=str(payload.get("scope_type", "company") or "company"),
+            scope_key=str(payload.get("scope_key", "") or ""),
+            industry=str(payload.get("industry", "") or ""),
             metadata=dict(payload.get("metadata", {}) or {}),
         )
 

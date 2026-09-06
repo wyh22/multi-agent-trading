@@ -23,6 +23,10 @@ def search_company_knowledge(
     as_of_date: Annotated[str, "研究截止日期，格式 YYYY-MM-DD；检索结果发布日期不得晚于此日"],
     top_k: Annotated[int, "返回证据片段数量，建议 3~8"] = 6,
     doc_type: Annotated[str | None, "可选文档类型过滤，如 annual_report / announcement"] = None,
+    industry: Annotated[
+        str | None,
+        "可选行业名称/代码；为空时从知识库已有公司元数据自动解析",
+    ] = None,
 ) -> str:
     """PIT-aware hybrid RAG：Dense+BM25+RRF，并可选 Cross-Encoder Rerank。"""
 
@@ -39,6 +43,8 @@ def search_company_knowledge(
             candidate_k=int(config.get("rag_candidate_k", 30)),
             corpus_limit=int(config.get("rag_bm25_corpus_limit", 1000)),
             doc_type=doc_type,
+            max_chunks_per_doc=int(config.get("rag_max_chunks_per_doc", 2)),
+            industry=industry,
         )
     except Exception as exc:  # noqa: BLE001
         return f"RAG_UNAVAILABLE: {type(exc).__name__}: {exc}"
@@ -52,7 +58,23 @@ def search_company_knowledge(
         max_chars = int(config.get("rag_excerpt_chars", 650))
         if len(excerpt) > max_chars:
             excerpt = excerpt[:max_chars] + "…"
-        meta = f"[{c.publish_date}] [{c.source}] {c.title}"
-        lines.append(f"{i}. {meta}\n   {excerpt}\n   source={c.url or c.doc_id}")
-    lines.append("\n注意：以上片段均经过 publish_date<=as_of_date 的 PIT 过滤；结论仍需结合原始来源核验。")
+        provenance = c.metadata or {}
+        authority = str(provenance.get("source_authority") or c.source)
+        verified = provenance.get("publish_date_verified")
+        verified_label = (
+            "verified" if verified is True else "unverified" if verified is False else "legacy"
+        )
+        evidence_id = f"RAG:{c.doc_id}#chunk-{c.chunk_index}"
+        scope_label = f"{c.scope_type}:{c.scope_key}"
+        meta = (
+            f"[{c.publish_date}] [{authority}] [{verified_label}] "
+            f"[{scope_label}] {c.title}"
+        )
+        lines.append(
+            f"{i}. {meta}\n"
+            f"   evidence_id={evidence_id}\n"
+            f"   {excerpt}\n"
+            f"   source={provenance.get('source_url') or c.url or c.doc_id}"
+        )
+    lines.append("\n注意：以上片段均经过 publish_date<=as_of_date 的 PIT 过滤；历史研究还会排除显式未核验披露日的上传文档。引用结论时请保留 evidence_id/原始来源。")
     return "\n".join(lines)

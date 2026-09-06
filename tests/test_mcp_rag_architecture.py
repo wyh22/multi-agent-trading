@@ -40,3 +40,39 @@ def test_fundamentals_analyst_prompt_knows_shared_rag_tools():
     assert "active_tool_names" in source
     assert '"search_company_knowledge" in active_tool_names' in source
     assert "annual reports" in source
+
+
+def test_service_exposes_rag_observability_and_direct_search():
+    source = _read("service/app.py")
+    assert '@app.get("/knowledge/status")' in source
+    assert '@app.get("/knowledge/documents")' in source
+    assert '@app.post("/knowledge/search")' in source
+    assert '@app.get("/knowledge/coverage")' in source
+
+
+def test_rag_ingest_cli_exposes_explicit_provenance_controls():
+    source = _read("scripts/rag_ingest.py")
+    assert "--publish-date-source" in source
+    assert "--publish-date-verified" in source
+    assert "--source-authority" in source
+    assert "--source-url" in source
+    assert "--url" in source
+    assert "--manifest" in source
+    assert "--scope-type" in source
+    assert "--scope-key" in source
+
+
+def test_rag_scope_model_is_project_wide():
+    source = _read("tradingagents/rag/scope.py")
+    for scope_type in (
+        "company",
+        "industry",
+        "market",
+        "macro",
+        "regulation",
+    ):
+        assert f'"{scope_type}"' in source
+    planner = _read("tradingagents/rag/evidence_pack.py")
+    assert "风电" not in planner
+    assert "白酒" not in planner
+    assert "半导体" not in planner
