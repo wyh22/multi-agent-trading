@@ -21,6 +21,7 @@ from tradingagents.orchestration.schemas import (
     ExecutionResult,
     ResearchResponse,
     SupervisorAction,
+    TaskContract,
 )
 from tradingagents.orchestration.supervisor import ConversationSupervisor
 from tradingagents.skills.registry import BUILTIN_SKILLS
@@ -151,6 +152,11 @@ class ConversationAgent:
                 )
             )
         for skill in BUILTIN_SKILLS.values():
+            if (
+                skill.name == "document_evidence_analysis"
+                and not self.config.get("rag_enabled", False)
+            ):
+                continue
             registry.register(
                 CapabilitySpec(
                     name=skill.name,
@@ -933,6 +939,51 @@ class ConversationAgent:
             {"execution_status": "FAILED"},
         )
 
+    @staticmethod
+    def _is_continuation_request(message: str) -> bool:
+        normalized = (message or "").strip().lower()
+        return any(
+            phrase in normalized
+            for phrase in (
+                "继续补查",
+                "补查缺失",
+                "补充缺失",
+                "补齐缺失",
+                "继续补充证据",
+                "上一轮缺失",
+                "尚未覆盖",
+                "缺少证据",
+            )
+        )
+
+    @staticmethod
+    def _continuation_objective(
+        message: str,
+        previous_completion: dict[str, Any],
+    ) -> str:
+        missing = [
+            str(item)
+            for item in previous_completion.get("missing_items", []) or []
+            if str(item).strip()
+        ]
+        gaps = [
+            str(item)
+            for item in previous_completion.get("evidence_gaps", []) or []
+            if str(item).strip()
+        ]
+        details = []
+        if missing:
+            details.append("上一轮 missing_items:\n- " + "\n- ".join(missing[:12]))
+        if gaps:
+            details.append("上一轮 evidence_gaps:\n- " + "\n- ".join(gaps[:12]))
+        if not details:
+            return message
+        return (
+            f"{message}\n\n"
+            "这是上一轮 PARTIAL/REVIEW_REQUIRED 的定向补查，不要重跑完整研究。\n"
+            + "\n".join(details)
+        )
+
     def chat(
         self,
         message: str,
@@ -964,7 +1015,24 @@ class ConversationAgent:
         )
         thread = self.store.get_thread(tid) or thread
         research_context = str(thread.get("research_context", "") or "")
+        metadata = (
+            thread.get("metadata", {})
+            if isinstance(thread.get("metadata"), dict)
+            else {}
+        )
+        previous_completion = (
+            metadata.get("completion", {})
+            if isinstance(metadata.get("completion"), dict)
+            else {}
+        )
+        continuation = self._is_continuation_request(message)
+
         observations: list[str] = []
+        if continuation and research_context.strip():
+            observations.append(
+                "[previous_research_context]\n"
+                + research_context[:12000]
+            )
         used_capabilities: list[str] = []
         supervisor_trace: list[dict[str, Any]] = []
         execution_events: list[dict[str, Any]] = []
@@ -973,20 +1041,37 @@ class ConversationAgent:
             int(self.config.get("conversation_supervisor_steps", 3)),
         )
 
-        task_contract = self.task_contract_builder.build(
-            message,
-            ticker=resolved_ticker,
-            as_of_date=cutoff,
-        )
+        previous_contract = metadata.get("task_contract")
+        if continuation and isinstance(previous_contract, dict):
+            try:
+                task_contract = TaskContract.model_validate(previous_contract)
+            except Exception:  # noqa: BLE001
+                task_contract = self.task_contract_builder.build(
+                    message,
+                    ticker=resolved_ticker,
+                    as_of_date=cutoff,
+                )
+        else:
+            task_contract = self.task_contract_builder.build(
+                message,
+                ticker=resolved_ticker,
+                as_of_date=cutoff,
+            )
         completion = CompletionAssessment()
+        decision_message = (
+            self._continuation_objective(message, previous_completion)
+            if continuation
+            else message
+        )
 
         action = self.supervisor.decide(
-            message,
+            decision_message,
             current_ticker=resolved_ticker,
             as_of_date=cutoff,
             history=history[:-1],
             research_context=research_context,
             force_mode=force_mode,
+            repair_mode=continuation,
         )
 
         answer = ""
@@ -1037,8 +1122,11 @@ class ConversationAgent:
             terminal_action = (
                 force_mode != "auto"
                 or self.supervisor.structured_llm is None
-                or action.action
-                in {"respond", "rollback", "run_skill", "run_deep_research"}
+                or action.action in {"respond", "rollback", "run_deep_research"}
+                or (
+                    action.action == "run_skill"
+                    and action.target != "document_evidence_analysis"
+                )
                 or (
                     action.action == "call_tool"
                     and (not action.target or action.target == "auto")
@@ -1053,7 +1141,7 @@ class ConversationAgent:
                 break
 
             next_action = self.supervisor.decide(
-                message,
+                decision_message,
                 current_ticker=resolved_ticker,
                 as_of_date=cutoff,
                 history=history[:-1],
@@ -1061,6 +1149,7 @@ class ConversationAgent:
                 force_mode=force_mode,
                 observations=observations,
                 used_capabilities=used_capabilities,
+                repair_mode=continuation,
             )
             next_key = f"{next_action.action}:{next_action.target or ''}"
             if next_action.action != "respond" and next_key in used_capabilities:

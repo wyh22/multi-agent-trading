@@ -92,7 +92,23 @@ class TaskContractBuilder:
                 raise ValueError("empty task contract")
             if not result.objective:
                 result.objective = message
-            return self._sanitize(contract, result)
+            if ticker and ticker not in result.required_entities:
+                result.required_entities.insert(0, ticker)
+            result.required_dimensions = list(
+                dict.fromkeys(
+                    str(item).strip()
+                    for item in result.required_dimensions
+                    if str(item).strip()
+                )
+            )
+            result.required_entities = list(
+                dict.fromkeys(
+                    str(item).strip()
+                    for item in result.required_entities
+                    if str(item).strip()
+                )
+            )
+            return result
         except Exception as exc:  # noqa: BLE001
             logger.warning("Task contract generation failed; using fallback: %s", exc)
             return _fallback_contract(message, ticker)
