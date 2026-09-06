@@ -1,5 +1,6 @@
 from tradingagents.rag.evidence_pack import build_repair_queries, source_document_key
 from tradingagents.rag.models import KnowledgeChunk
+from tradingagents.rag.scope import GLOBAL_KNOWLEDGE_SCOPE
 from tradingagents.rag.retriever import HybridKnowledgeRetriever, InMemoryKnowledgeStore
 
 def _chunk(cid, date, text):
@@ -78,3 +79,39 @@ def test_retrieval_limits_chunks_from_same_parent_document():
     )
     assert len(hits) == 2
     assert len({source_document_key(hit.chunk) for hit in hits}) == 2
+
+
+def test_company_search_can_include_shared_global_policy_evidence():
+    chunks = [
+        KnowledgeChunk(
+            chunk_id="company::0",
+            doc_id="company",
+            ticker="600000.SH",
+            title="公司经营公告",
+            text="公司披露年度发电量。",
+            publish_date="2026-05-01",
+            source="company",
+            doc_type="announcement",
+        ),
+        KnowledgeChunk(
+            chunk_id="policy::0",
+            doc_id="policy",
+            ticker=GLOBAL_KNOWLEDGE_SCOPE,
+            title="风电消纳政策",
+            text="新能源消纳责任权重和风电并网消纳政策。",
+            publish_date="2026-04-15",
+            source="policy",
+            doc_type="policy",
+        ),
+    ]
+    retriever = HybridKnowledgeRetriever(InMemoryKnowledgeStore(chunks))
+    hits = retriever.search(
+        "风电消纳政策",
+        ticker="600000.SH",
+        as_of_date="2026-08-20",
+        top_k=2,
+    )
+    assert any(
+        hit.chunk.ticker == GLOBAL_KNOWLEDGE_SCOPE
+        for hit in hits
+    )
