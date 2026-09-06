@@ -64,6 +64,8 @@ class ConversationSupervisor:
         *,
         current_ticker: str | None,
         force_mode: str = "auto",
+        repair_mode: bool = False,
+        used_capabilities: list[str] | None = None,
     ) -> SupervisorAction:
         route = route_message(
             message,
@@ -127,6 +129,12 @@ class ConversationSupervisor:
                     "估值",
                     "市盈率",
                     "市净率",
+                    "主营业务",
+                    "业务与经营",
+                    "装机容量",
+                    "发电量",
+                    "利用小时",
+                    "运营规模",
                 ),
                 "news": (
                     "公告",
@@ -136,6 +144,11 @@ class ConversationSupervisor:
                     "监管",
                     "事件风险",
                     "宏观",
+                    "弃风",
+                    "限电",
+                    "补贴",
+                    "国补",
+                    "规划",
                 ),
             }
             matched = [
@@ -143,6 +156,18 @@ class ConversationSupervisor:
                 for name, words in domain_words.items()
                 if any(word in normalized for word in words)
             ]
+            if repair_mode and matched:
+                used = set(used_capabilities or [])
+                for name in matched:
+                    if (
+                        self.registry.get(name) is not None
+                        and f"delegate_agent:{name}" not in used
+                    ):
+                        return SupervisorAction(
+                            action="delegate_agent",
+                            target=name,
+                            objective=message,
+                        )
             if len(matched) == 1 and self.registry.get(matched[0]) is not None:
                 return SupervisorAction(
                     action="delegate_agent",
@@ -179,12 +204,15 @@ class ConversationSupervisor:
         force_mode: str = "auto",
         observations: list[str] | None = None,
         used_capabilities: list[str] | None = None,
+        repair_mode: bool = False,
     ) -> SupervisorAction:
         if force_mode != "auto":
             return self._fallback(
                 message,
                 current_ticker=current_ticker,
                 force_mode=force_mode,
+                repair_mode=repair_mode,
+                used_capabilities=used_capabilities,
             )
 
         normalized = (message or "").strip().lower()
@@ -220,6 +248,10 @@ class ConversationSupervisor:
 9. 所有历史事实必须满足 PIT 截止日期约束。
 10. 如果“本轮已获得结果”已经足够回答，就 respond；否则可以选择一个尚未使用的互补 Tool/Agent。
 11. 不要重复调用同一个 capability，除非上一次明确返回 retryable 错误。
+12. 如果这是上一轮 PARTIAL/REVIEW_REQUIRED 的补查（repair_mode=true），禁止重新运行完整 deep_stock_research；
+    应优先选择尚未使用的 specialist Agent 或可用的文档证据能力，只补缺口。
+
+repair_mode：{"true" if repair_mode else "false"}
 
 本轮已使用 capability：
 {used_text}
@@ -240,12 +272,21 @@ class ConversationSupervisor:
 """.strip()
 
         if self.structured_llm is None:
-            return self._fallback(message, current_ticker=current_ticker)
+            return self._fallback(
+                message,
+                current_ticker=current_ticker,
+                repair_mode=repair_mode,
+                used_capabilities=used_capabilities,
+            )
         try:
             action = self.structured_llm.invoke(prompt)
             if action is None:
                 raise ValueError("supervisor returned no structured action")
             action = self._normalize_target(action)
+            if repair_mode and action.action == "run_deep_research":
+                raise ValueError(
+                    "repair mode must not rerun deep_stock_research"
+                )
             if action.target and action.action in {
                 "call_tool",
                 "delegate_agent",
