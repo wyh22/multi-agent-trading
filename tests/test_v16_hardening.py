@@ -248,3 +248,17 @@ def test_adaptive_style_weights_are_pit_safe_and_shrunk_to_rule_prior(tmp_path):
     assert adapted.weights["dividend"] > base["dividend"]
     assert adapted.weights["momentum"] < 0.7
     assert abs(sum(adapted.weights.values()) - 1.0) < 1e-9
+
+
+def test_web_ui_exposes_human_in_the_loop_controls():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "service"
+        / "static"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "继续补查缺失项" in source
+    assert "回滚上一版" in source
+    assert "REVIEW_REQUIRED" in source
+    assert "DATA_UNAVAILABLE" in source
+    assert "renderActions" in source
