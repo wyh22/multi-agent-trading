@@ -45,7 +45,7 @@ def _pdf_documents(
     publish_date_verified: bool,
 ) -> list[KnowledgeDocument]:
     try:
-        import fitz  # PyMuPDF
+        import fitz
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("PDF 解析需要 PyMuPDF，请安装 agent 可选依赖") from exc
 
@@ -72,7 +72,13 @@ def _pdf_documents(
                         "file_name": display_name,
                         "file_hash": file_hash,
                         "page": page_no,
-                        **_date_meta(\n                            source=publish_date_source,\n                            confidence=publish_date_confidence,\n                            verified=publish_date_verified,\n                        ),\n                    },\n                )
+                        **_date_meta(
+                            source=publish_date_source,
+                            confidence=publish_date_confidence,
+                            verified=publish_date_verified,
+                        ),
+                    },
+                )
             )
     if not documents:
         raise ValueError("PDF 未提取到可检索文本；扫描版 PDF 暂未启用 OCR")
@@ -110,6 +116,7 @@ def _docx_documents(
             parts.append(f"\n## {text}")
         else:
             parts.append(text)
+
     for table_index, table in enumerate(doc.tables, start=1):
         rows = []
         for row in table.rows:
@@ -117,9 +124,11 @@ def _docx_documents(
             rows.append(" | ".join(values))
         if rows:
             parts.append(f"\n[TABLE {table_index}]\n" + "\n".join(rows))
+
     text = "\n".join(parts).strip()
     if not text:
         raise ValueError("DOCX 未提取到可检索文本")
+
     return [
         KnowledgeDocument(
             doc_id=file_hash,
@@ -134,7 +143,13 @@ def _docx_documents(
                 "file_name": display_name,
                 "file_hash": file_hash,
                 "heading_hint": heading_path[-1] if heading_path else "",
-                **_date_meta(\n                    source=publish_date_source,\n                    confidence=publish_date_confidence,\n                    verified=publish_date_verified,\n                ),\n            },\n        )
+                **_date_meta(
+                    source=publish_date_source,
+                    confidence=publish_date_confidence,
+                    verified=publish_date_verified,
+                ),
+            },
+        )
     ]
 
 
@@ -154,6 +169,7 @@ def _text_documents(
     if not text:
         raise ValueError("文档为空")
     display_name, source_uri = _source_meta(path, source_name)
+
     return [
         KnowledgeDocument(
             doc_id=file_hash,
@@ -164,7 +180,16 @@ def _text_documents(
             source="uploaded-text",
             url=source_uri,
             doc_type=doc_type,
-            metadata={\n                "file_name": display_name,\n                "file_hash": file_hash,\n                **_date_meta(\n                    source=publish_date_source,\n                    confidence=publish_date_confidence,\n                    verified=publish_date_verified,\n                ),\n            },\n        )
+            metadata={
+                "file_name": display_name,
+                "file_hash": file_hash,
+                **_date_meta(
+                    source=publish_date_source,
+                    confidence=publish_date_confidence,
+                    verified=publish_date_verified,
+                ),
+            },
+        )
     ]
 
 
