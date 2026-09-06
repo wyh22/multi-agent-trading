@@ -329,6 +329,8 @@ def test_news_agent_allows_insider_tool_for_explicit_management_holding_request(
 
 
 def test_company_news_vendor_failure_degrades_instead_of_raising(monkeypatch):
+    data_interface._reset_vendor_circuit_breakers()
+
     def boom(*_args, **_kwargs):
         raise ValueError("upstream returned non-JSON")
 
@@ -354,6 +356,7 @@ def test_company_news_vendor_failure_degrades_instead_of_raising(monkeypatch):
     assert "upstream returned non-JSON" in result
 
     data_interface.VENDOR_METHODS["get_news"] = original
+    data_interface._reset_vendor_circuit_breakers()
 
 
 def test_project_requires_cninfo_fixed_akshare_floor():
