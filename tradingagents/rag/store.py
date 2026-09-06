@@ -93,11 +93,22 @@ class QdrantKnowledgeStore:
         return total
 
     @staticmethod
-    def _filter(ticker: str, as_of_date: str, doc_type: str | None = None):
+    def _filter(
+        ticker: str | list[str],
+        as_of_date: str,
+        doc_type: str | None = None,
+    ):
         from qdrant_client import models
 
+        scopes = [ticker] if isinstance(ticker, str) else list(ticker)
+        scopes = [str(item) for item in scopes if str(item)]
+        ticker_match = (
+            models.MatchValue(value=scopes[0])
+            if len(scopes) == 1
+            else models.MatchAny(any=scopes)
+        )
         must = [
-            models.FieldCondition(key="ticker", match=models.MatchValue(value=ticker)),
+            models.FieldCondition(key="ticker", match=ticker_match),
             models.FieldCondition(
                 key="publish_date",
                 range=models.DatetimeRange(lte=as_of_date[:10] + "T23:59:59Z"),
@@ -108,7 +119,7 @@ class QdrantKnowledgeStore:
         return models.Filter(must=must)
 
     def query_dense(
-        self, query: str, *, ticker: str, as_of_date: str, limit: int = 20, doc_type: str | None = None
+        self, query: str, *, ticker: str | list[str], as_of_date: str, limit: int = 20, doc_type: str | None = None
     ) -> list[tuple[KnowledgeChunk, float]]:
         if self.embedder is None:
             raise RuntimeError("dense query requires an embedding backend")
@@ -128,7 +139,7 @@ class QdrantKnowledgeStore:
         return rows
 
     def scroll_chunks(
-        self, *, ticker: str, as_of_date: str, limit: int = 1000, doc_type: str | None = None
+        self, *, ticker: str | list[str], as_of_date: str, limit: int = 1000, doc_type: str | None = None
     ) -> list[KnowledgeChunk]:
         rows: list[KnowledgeChunk] = []
         offset = None
