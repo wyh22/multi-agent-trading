@@ -49,6 +49,18 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b, strict=True))
 
 
+def _publication_date_is_pit_safe(chunk: KnowledgeChunk, cutoff: date) -> bool:
+    """Fail closed for explicitly-unverified dates in historical research.
+
+    Legacy indexed documents without the provenance field are kept compatible;
+    newly uploaded user documents explicitly store publish_date_verified=False.
+    """
+    if cutoff >= date.today():
+        return True
+    verified = (chunk.metadata or {}).get("publish_date_verified")
+    return verified is not False
+
+
 class InMemoryKnowledgeStore:
     """Dependency-free store used by tests and small local demos."""
 
@@ -64,6 +76,8 @@ class InMemoryKnowledgeStore:
             if c.ticker != ticker:
                 continue
             if date.fromisoformat(c.publish_date) > cutoff:
+                continue
+            if not _publication_date_is_pit_safe(c, cutoff):
                 continue
             if doc_type and c.doc_type != doc_type:
                 continue
@@ -111,12 +125,28 @@ class HybridKnowledgeRetriever:
         doc_type: str | None = None,
     ) -> list[RetrievalHit]:
         # Qdrant filter is the first PIT gate; final date check below is a defense-in-depth gate.
-        dense = self.store.query_dense(
-            query, ticker=ticker, as_of_date=as_of_date, limit=candidate_k, doc_type=doc_type
-        )
-        corpus = self.store.scroll_chunks(
-            ticker=ticker, as_of_date=as_of_date, limit=corpus_limit, doc_type=doc_type
-        )
+        cutoff = date.fromisoformat(as_of_date[:10])
+        dense = [
+            item
+            for item in self.store.query_dense(
+                query,
+                ticker=ticker,
+                as_of_date=as_of_date,
+                limit=candidate_k,
+                doc_type=doc_type,
+            )
+            if _publication_date_is_pit_safe(item[0], cutoff)
+        ]
+        corpus = [
+            chunk
+            for chunk in self.store.scroll_chunks(
+                ticker=ticker,
+                as_of_date=as_of_date,
+                limit=corpus_limit,
+                doc_type=doc_type,
+            )
+            if _publication_date_is_pit_safe(chunk, cutoff)
+        ]
         sparse_scores = bm25_scores(query, corpus)
         sparse = sorted(zip(corpus, sparse_scores, strict=True), key=lambda x: x[1], reverse=True)[:candidate_k]
 
@@ -133,7 +163,6 @@ class HybridKnowledgeRetriever:
             sparse_score[chunk.chunk_id] = score
             rrf[chunk.chunk_id] += 1.0 / (self.rrf_k + rank)
 
-        cutoff = date.fromisoformat(as_of_date[:10])
         ordered = [
             cid for cid, _ in sorted(rrf.items(), key=lambda x: x[1], reverse=True)
             if date.fromisoformat(chunks[cid].publish_date) <= cutoff
