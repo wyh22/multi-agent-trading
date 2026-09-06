@@ -80,11 +80,12 @@ def build_style_ic_history(
             if len(sample) < int(min_sector_count):
                 row[f"{style}_ic"] = float("nan")
                 continue
+            # Spearman = Pearson correlation of ranks. Compute it directly
+            # so the core project does not need scipy only for this statistic.
+            ranked_style = sample[column].rank(method="average")
+            ranked_return = sample["forward_return"].rank(method="average")
             row[f"{style}_ic"] = float(
-                sample[column].corr(
-                    sample["forward_return"],
-                    method="spearman",
-                )
+                ranked_style.corr(ranked_return, method="pearson")
             )
             valid_style_count += 1
 
