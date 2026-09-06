@@ -66,4 +66,9 @@ def ingest_path(
         "chunks": count,
         "file_hashes": hashes,
         "collection": store.collection,
-        "publish_date_provenance": {\n            "source": publish_date_source,\n            "confidence": float(publish_date_confidence),\n            "verified": bool(publish_date_verified),\n        },\n    }\n
+        "publish_date_provenance": {
+            "source": publish_date_source,
+            "confidence": float(publish_date_confidence),
+            "verified": bool(publish_date_verified),
+        },
+    }
