@@ -14,7 +14,7 @@ from tradingagents.evaluation.routing import (
     summarize_routing,
 )
 from tradingagents.orchestration.completion import CompletionGate, TaskContractBuilder
-from tradingagents.orchestration.schemas import TaskContract
+from tradingagents.orchestration.schemas import CompletionAssessment, TaskContract
 from tradingagents.rag.models import KnowledgeChunk
 from tradingagents.rag.retriever import (
     HybridKnowledgeRetriever,
@@ -295,3 +295,44 @@ def test_web_ui_exposes_human_in_the_loop_controls():
     assert "REVIEW_REQUIRED" in source
     assert "DATA_UNAVAILABLE" in source
     assert "renderActions" in source
+
+
+def test_completion_gate_constrains_missing_items_to_task_contract():
+    contract = TaskContract(
+        objective="梳理公告、新闻和政策风险",
+        required_dimensions=["公告", "新闻", "政策"],
+        required_entities=["601016.SH"],
+        critical_requirements=["公告", "政策"],
+    )
+    raw = CompletionAssessment(
+        complete=False,
+        completion_ratio=0.6,
+        completed_items=[
+            "601016.SH × 公告：已有媒体转载",
+            "601016.SH × 新闻：已有报道",
+        ],
+        missing_items=[
+            "601016.SH × 政策：缺少专项政策原文",
+            "601016.SH × 财务：缺少应收账款附注",
+        ],
+        evidence_gaps=["公告原文未核验"],
+    )
+    result = CompletionGate._sanitize(contract, raw)
+    assert result.completed_items == [
+        "601016.SH::公告",
+        "601016.SH::新闻",
+    ]
+    assert result.missing_items == ["601016.SH::政策"]
+    assert result.completion_ratio == 2 / 3
+    assert any("财务" in item for item in result.evidence_gaps)
+
+
+def test_respond_step_does_not_reassess_evidence_completion():
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "tradingagents"
+        / "conversation"
+        / "agent.py"
+    ).read_text(encoding="utf-8")
+    assert 'if action.action == "respond" and step_index > 0:' in source
+    assert "must not change evidence-completion bookkeeping" in source
