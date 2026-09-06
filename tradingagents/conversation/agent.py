@@ -31,9 +31,15 @@ logger = logging.getLogger(__name__)
 class ConversationAgent:
     """Conversation-first supervisor over tools, specialist agents and skills."""
 
-    def __init__(self, config: dict[str, Any], store: ConversationStore):
+    def __init__(
+        self,
+        config: dict[str, Any],
+        store: ConversationStore,
+        callbacks: list[Any] | None = None,
+    ):
         self.config = config
         self.store = store
+        self.callbacks = list(callbacks or [])
         self.llm = self._create_quick_llm()
         self.tool_groups = build_tool_groups(self.config)
         self.tools = self._build_tools()
@@ -47,6 +53,7 @@ class ConversationAgent:
             self.llm,
             self.tool_groups,
             max_recur_limit=int(self.config.get("max_recur_limit", 60)),
+            callbacks=self.callbacks,
         )
 
     def _provider_kwargs(self) -> dict[str, Any]:
@@ -67,11 +74,14 @@ class ConversationAgent:
         return kwargs
 
     def _create_quick_llm(self):
+        kwargs = self._provider_kwargs()
+        if self.callbacks:
+            kwargs["callbacks"] = self.callbacks
         client = create_llm_client(
             provider=self.config["llm_provider"],
             model=self.config["quick_think_llm"],
             base_url=self.config.get("backend_url"),
-            **self._provider_kwargs(),
+            **kwargs,
         )
         return client.get_llm()
 
@@ -254,14 +264,19 @@ class ConversationAgent:
                 fallback_available=True,
             )
         try:
-            result = tool.invoke(
-                self._inject_common_args(
-                    name,
-                    args,
-                    ticker=ticker,
-                    as_of_date=as_of_date,
-                )
+            invoke_args = self._inject_common_args(
+                name,
+                args,
+                ticker=ticker,
+                as_of_date=as_of_date,
             )
+            if self.callbacks:
+                result = tool.invoke(
+                    invoke_args,
+                    config={"callbacks": self.callbacks},
+                )
+            else:
+                result = tool.invoke(invoke_args)
             text = str(result)
             status = "SUCCESS"
             if text.startswith(("NO_DATA_AVAILABLE", "NO_RAG_EVIDENCE")):
@@ -293,6 +308,8 @@ class ConversationAgent:
         ticker: str | None,
         as_of_date: str,
         research_context: str,
+        evidence_sink: list[str] | None = None,
+        trace_sink: list[dict[str, Any]] | None = None,
     ) -> str:
         messages: list[Any] = [
             SystemMessage(
@@ -324,13 +341,29 @@ class ConversationAgent:
                 return str(response.content or "")
             for call in tool_calls:
                 name = str(call.get("name") or "")
+                raw_args = dict(call.get("args") or {})
                 result = self._invoke_atomic_tool(
                     name,
-                    dict(call.get("args") or {}),
+                    raw_args,
                     ticker=ticker,
                     as_of_date=as_of_date,
                 )
                 text = result.content
+                if evidence_sink is not None:
+                    evidence_sink.append(f"[{name}]\n{text}")
+                if trace_sink is not None:
+                    trace_sink.append(
+                        {
+                            "tool_name": name,
+                            "arguments": self._inject_common_args(
+                                name,
+                                raw_args,
+                                ticker=ticker,
+                                as_of_date=as_of_date,
+                            ),
+                            "status": result.status,
+                        }
+                    )
                 if len(text) > 12000:
                     text = text[:12000] + "\n...[工具结果已截断]"
                 messages.append(
