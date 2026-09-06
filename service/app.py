@@ -15,6 +15,7 @@ from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.dataflows.symbol_utils import normalize_a_share_symbol
 from tradingagents.discovery.pipeline import run_discovery, run_research_pool
 from tradingagents.graph.trading_graph import TradingAgentsGraph
+from tradingagents.rag.catalog import build_corpus_coverage
 from tradingagents.rag.ingestion import ingest_path
 from tradingagents.rag.retriever import HybridKnowledgeRetriever
 from tradingagents.rag.scope import normalize_scope
@@ -343,6 +344,26 @@ def knowledge_documents(
             "documents": rows,
             "count": len(rows),
         }
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=503,
+            detail=f"{type(exc).__name__}: {exc}",
+        ) from exc
+
+
+@app.get("/knowledge/coverage")
+def knowledge_coverage(ticker: str):
+    if not DEFAULT_CONFIG.get("rag_enabled", False):
+        raise HTTPException(status_code=409, detail="RAG is disabled")
+    try:
+        canonical = normalize_a_share_symbol(ticker)
+        rows = _knowledge_store().list_documents(
+            limit=2000,
+        )
+        return build_corpus_coverage(
+            rows,
+            ticker=canonical,
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=503,
