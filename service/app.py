@@ -201,6 +201,15 @@ def chat(req: ChatRequest):
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}") from exc
 
 
+@app.get("/chats/recent")
+def recent_chats(limit: int = 20):
+    return {
+        "threads": _conversation_store().list_threads(
+            limit=max(1, min(int(limit), 100))
+        )
+    }
+
+
 @app.get("/chat/{thread_id}")
 def chat_history(thread_id: str, limit: int = 20):
     store = _conversation_store()
