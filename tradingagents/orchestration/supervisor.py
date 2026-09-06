@@ -58,6 +58,28 @@ class ConversationSupervisor:
         action.target = target
         return action
 
+    @staticmethod
+    def _validate_action_feasibility(
+        action: SupervisorAction,
+        *,
+        repair_mode: bool,
+    ) -> SupervisorAction:
+        if (
+            repair_mode
+            and action.action == "run_skill"
+            and action.target == "company_comparison"
+        ):
+            tickers = [
+                str(item).strip()
+                for item in (action.arguments or {}).get("tickers", []) or []
+                if str(item).strip()
+            ]
+            if len(set(tickers)) < 2:
+                raise ValueError(
+                    "company_comparison requires at least two distinct tickers"
+                )
+        return action
+
     def _fallback(
         self,
         message: str,
@@ -168,6 +190,13 @@ class ConversationSupervisor:
                             target=name,
                             objective=message,
                         )
+                return SupervisorAction(
+                    action="respond",
+                    objective=(
+                        "已完成当前可用 specialist 的定向补查；"
+                        "保留仍未覆盖的缺口，不再重跑完整研究或选择无关 Skill。"
+                    ),
+                )
             if len(matched) == 1 and self.registry.get(matched[0]) is not None:
                 return SupervisorAction(
                     action="delegate_agent",
@@ -250,6 +279,8 @@ class ConversationSupervisor:
 11. 不要重复调用同一个 capability，除非上一次明确返回 retryable 错误。
 12. 如果这是上一轮 PARTIAL/REVIEW_REQUIRED 的补查（repair_mode=true），禁止重新运行完整 deep_stock_research；
     应优先选择尚未使用的 specialist Agent 或可用的文档证据能力，只补缺口。
+13. company_comparison 只适用于至少两个明确比较标的；单股票补查禁止选择该 Skill。
+14. repair_mode 下若相关 specialist 已全部使用且没有新的可行 capability，应 respond 并保留缺口，不要为了用满步数而选择无关能力。
 
 repair_mode：{"true" if repair_mode else "false"}
 
@@ -283,6 +314,10 @@ repair_mode：{"true" if repair_mode else "false"}
             if action is None:
                 raise ValueError("supervisor returned no structured action")
             action = self._normalize_target(action)
+            action = self._validate_action_feasibility(
+                action,
+                repair_mode=repair_mode,
+            )
             if repair_mode and action.action == "run_deep_research":
                 raise ValueError(
                     "repair mode must not rerun deep_stock_research"
@@ -301,4 +336,9 @@ repair_mode：{"true" if repair_mode else "false"}
                 "Supervisor structured routing failed; using fallback: %s",
                 exc,
             )
-            return self._fallback(message, current_ticker=current_ticker)
+            return self._fallback(
+                message,
+                current_ticker=current_ticker,
+                repair_mode=repair_mode,
+                used_capabilities=used_capabilities,
+            )
