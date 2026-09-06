@@ -498,15 +498,28 @@ class ConversationAgent:
         ticker: str | None,
         cutoff: str,
         thread: dict[str, Any],
-    ) -> tuple[str, str, dict[str, Any] | None]:
+    ) -> tuple[str, str, dict[str, Any] | None, dict[str, Any]]:
         target = str(action.target or "")
         if target == "sector_discovery":
             answer, metadata = self._run_sector_skill(message, cutoff)
-            return answer, "skill:sector_discovery", {"kind": "context_metadata", "metadata": metadata}
+            return (
+                answer,
+                "skill:sector_discovery",
+                {"kind": "context_metadata", "metadata": metadata},
+                {"execution_status": "SUCCESS"},
+            )
 
         if target == "document_evidence_analysis":
             if not ticker:
-                return "文档证据分析需要先指定股票代码。", "skill:document_evidence_analysis", None
+                return (
+                    "文档证据分析需要先指定股票代码。",
+                    "skill:document_evidence_analysis",
+                    None,
+                    {
+                        "execution_status": "INVALID_ARGUMENT",
+                        "evidence_gaps": ["missing ticker"],
+                    },
+                )
             result = self._invoke_atomic_tool(
                 "search_company_knowledge",
                 {
@@ -523,11 +536,29 @@ class ConversationAgent:
                 as_of_date=cutoff,
                 research_context=str(thread.get("research_context", "") or ""),
             )
-            return answer, "skill:document_evidence_analysis", None
+            return (
+                answer,
+                "skill:document_evidence_analysis",
+                None,
+                {
+                    "execution_status": result.status,
+                    "unavailable_sources": (
+                        ["shared_rag"] if result.status != "SUCCESS" else []
+                    ),
+                },
+            )
 
         if target == "deep_stock_research":
             if not ticker:
-                return "完整研究需要先指定股票代码。", "skill:deep_stock_research", None
+                return (
+                    "完整研究需要先指定股票代码。",
+                    "skill:deep_stock_research",
+                    None,
+                    {
+                        "execution_status": "INVALID_ARGUMENT",
+                        "evidence_gaps": ["missing ticker"],
+                    },
+                )
             answer, state, signal, research_context = self._run_deep_research(
                 ticker=ticker,
                 cutoff=cutoff,
@@ -542,7 +573,20 @@ class ConversationAgent:
                 "audit_status": state.get("audit_status", ""),
                 "signal": signal,
             }
-            return answer, "skill:deep_stock_research", {"kind": "research_version", "payload": payload}
+            return (
+                answer,
+                "skill:deep_stock_research",
+                {"kind": "research_version", "payload": payload},
+                {
+                    "execution_status": "SUCCESS",
+                    "audit_status": str(state.get("audit_status", "") or ""),
+                    "evidence_gaps": [
+                        str(item.get("instruction", ""))
+                        for item in state.get("audit_issues", []) or []
+                        if isinstance(item, dict) and item.get("instruction")
+                    ],
+                },
+            )
 
         if target == "company_comparison":
             tickers = [
@@ -555,8 +599,13 @@ class ConversationAgent:
                     "公司比较 Skill 需要 arguments.tickers 至少提供两个股票代码。",
                     "skill:company_comparison",
                     None,
+                    {
+                        "execution_status": "INVALID_ARGUMENT",
+                        "evidence_gaps": ["at least two tickers required"],
+                    },
                 )
             evidence = []
+            unavailable = []
             for item in tickers:
                 result = self.specialists.run(
                     "fundamentals",
@@ -565,6 +614,8 @@ class ConversationAgent:
                     objective=action.objective or message,
                 )
                 evidence.append(f"## {item}\n{result.content}")
+                if not result.ok:
+                    unavailable.append(item)
             answer = self._synthesize(
                 message=message,
                 evidence="\n\n".join(evidence),
@@ -572,9 +623,22 @@ class ConversationAgent:
                 as_of_date=cutoff,
                 research_context="",
             )
-            return answer, "skill:company_comparison", None
+            return (
+                answer,
+                "skill:company_comparison",
+                None,
+                {
+                    "execution_status": "SUCCESS" if not unavailable else "NO_DATA",
+                    "unavailable_sources": unavailable,
+                },
+            )
 
-        return f"未知 Skill: {target}", f"skill:{target}", None
+        return (
+            f"未知 Skill: {target}",
+            f"skill:{target}",
+            None,
+            {"execution_status": "FAILED", "evidence_gaps": ["unknown skill"]},
+        )
 
     def _execute_action(
         self,
@@ -586,24 +650,34 @@ class ConversationAgent:
         cutoff: str,
         history: list[dict[str, str]],
         thread: dict[str, Any],
-    ) -> tuple[str, str, dict[str, Any] | None]:
+    ) -> tuple[str, str, dict[str, Any] | None, dict[str, Any]]:
         research_context = str(thread.get("research_context", "") or "")
 
         if action.action == "rollback":
             restored = self.store.rollback_research_version(tid)
             if restored is None:
-                return "当前会话没有可回滚的上一版研究结果。", "rollback", None
+                return (
+                    "当前会话没有可回滚的上一版研究结果。",
+                    "rollback",
+                    None,
+                    {"execution_status": "NO_DATA"},
+                )
             payload = restored.get("payload", {})
             decision = str(payload.get("final_trade_decision", "") or "")
             answer = (
                 f"已回滚到研究版本 V{restored.get('id')}。"
                 + (f"\n\n{decision}" if decision else "")
             )
-            return answer, "rollback", None
+            return answer, "rollback", None, {"execution_status": "SUCCESS"}
 
         if action.action == "respond":
             if action.answer:
-                return str(action.answer), "respond", None
+                return (
+                    str(action.answer),
+                    "respond",
+                    None,
+                    {"execution_status": "SUCCESS"},
+                )
             prompt = f"""{self._system_prompt(
                 ticker=ticker,
                 as_of_date=cutoff,
@@ -612,7 +686,12 @@ class ConversationAgent:
 用户问题：{message}
 只解释已有已审计上下文，不新增任何未验证金融事实。
 """
-            return str(self.llm.invoke(prompt).content or ""), "respond", None
+            return (
+                str(self.llm.invoke(prompt).content or ""),
+                "respond",
+                None,
+                {"execution_status": "SUCCESS"},
+            )
 
         if action.action == "call_tool":
             if not action.target or action.target == "auto":
@@ -626,6 +705,7 @@ class ConversationAgent:
                     ),
                     "tool:auto",
                     None,
+                    {"execution_status": "SUCCESS"},
                 )
             result = self._invoke_atomic_tool(
                 action.target,
@@ -640,11 +720,30 @@ class ConversationAgent:
                 as_of_date=cutoff,
                 research_context=research_context,
             )
-            return answer, f"tool:{action.target}", None
+            return (
+                answer,
+                f"tool:{action.target}",
+                None,
+                {
+                    "execution_status": result.status,
+                    "unavailable_sources": (
+                        [action.target] if result.status != "SUCCESS" else []
+                    ),
+                    "error_type": result.error_type,
+                },
+            )
 
         if action.action == "delegate_agent":
             if not ticker:
-                return "专业 Agent 分析需要先指定股票代码。", "agent:missing_ticker", None
+                return (
+                    "专业 Agent 分析需要先指定股票代码。",
+                    "agent:missing_ticker",
+                    None,
+                    {
+                        "execution_status": "INVALID_ARGUMENT",
+                        "evidence_gaps": ["missing ticker"],
+                    },
+                )
             target = str(action.target or "").removesuffix("_agent")
             result = self.specialists.run(
                 target,
@@ -660,7 +759,18 @@ class ConversationAgent:
                 as_of_date=cutoff,
                 research_context=research_context,
             )
-            return answer, f"agent:{target}", None
+            return (
+                answer,
+                f"agent:{target}",
+                None,
+                {
+                    "execution_status": result.status,
+                    "unavailable_sources": (
+                        [f"{target}_agent"] if result.status != "SUCCESS" else []
+                    ),
+                    "error_type": result.error_type,
+                },
+            )
 
         if action.action == "run_deep_research":
             action.target = "deep_stock_research"
@@ -681,7 +791,12 @@ class ConversationAgent:
                 thread=thread,
             )
 
-        return "无法执行当前 Supervisor 动作。", "failed", None
+        return (
+            "无法执行当前 Supervisor 动作。",
+            "failed",
+            None,
+            {"execution_status": "FAILED"},
+        )
 
     def chat(
         self,
