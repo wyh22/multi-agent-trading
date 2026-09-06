@@ -26,10 +26,18 @@ _FACTORIES = {
 class SpecialistAgentExecutor:
     """Execute an existing analyst private subgraph without running the full research graph."""
 
-    def __init__(self, llm: Any, tool_groups: dict[str, list], *, max_recur_limit: int = 60):
+    def __init__(
+        self,
+        llm: Any,
+        tool_groups: dict[str, list],
+        *,
+        max_recur_limit: int = 60,
+        callbacks: list[Any] | None = None,
+    ):
         self.llm = llm
         self.tool_groups = tool_groups
         self.max_recur_limit = max(4, int(max_recur_limit))
+        self.callbacks = list(callbacks or [])
         self.logic = ConditionalLogic(max_audit_rounds=2)
         self._runners: dict[str, Any] = {}
 
@@ -76,9 +84,14 @@ class SpecialistAgentExecutor:
                 "past_context": past_context,
                 "audit_feedback": objective,
             }
+            run_config: dict[str, Any] = {
+                "recursion_limit": self.max_recur_limit,
+            }
+            if self.callbacks:
+                run_config["callbacks"] = self.callbacks
             result = self._runner(key)(
                 state,
-                config={"recursion_limit": self.max_recur_limit},
+                config=run_config,
             )
             report_key = ANALYST_NODE_SPECS[key].report_key
             content = str(result.get(report_key, "") or "").strip()
