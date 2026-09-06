@@ -44,7 +44,8 @@
 | Shared Hybrid RAG | Dense + BM25 + RRF + Reranker + Temporal Provenance | 未验证发布日期文档不会进入历史 PIT 检索 |
 | 多轮会话 | Supervisor + Task Contract + thread_id + SQLite | 返回 COMPLETE / PARTIAL / REVIEW_REQUIRED / DATA_UNAVAILABLE / SYSTEM_ERROR，并支持 HITL 继续补查 |
 | Research Rollback | Immutable SQLite research versions | 恢复上一版/指定版本；与 crash checkpoint 分离 |
-| Architecture Benchmark | Single Agent / Fixed Deep Research / Dynamic Supervisor + Routing / Grounding / Completion / PIT / Token / Latency | 用同条件实验检验复杂编排是否真的值得 |\n| Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |
+| Architecture Benchmark | Single Agent / Fixed Deep Research / Dynamic Supervisor + Routing / Grounding / Completion / PIT / Token / Latency | 用同条件实验检验复杂编排是否真的值得 |
+| Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |
 | Outcome Backtest | Rating vs. realized / benchmark return | 将“研究质量评估”和“市场结果评估”分离 |
 | 服务化 | FastAPI / Chat UI / Docker Compose | 提升可复现性和演示效率 |
 | 可观测性 | LangSmith Trace | 观察 LLM / Tool / Agent 调用链 |
@@ -503,7 +504,9 @@ Supervisor 或 Adaptive Style 已经带来确定的准确率、收益率或成�
 - [ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)：设计取舍、代码所有权边界、面向工程评审的实现说明
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
 - [MCP_RAG_DOCKER_GUIDE.md](MCP_RAG_DOCKER_GUIDE.md)：MCP、Qdrant Hybrid RAG、Docker
-- [docs/V1_7_BENCHMARK.md](docs/V1_7_BENCHMARK.md)：三架构 Benchmark、Telemetry、Grounding/Completion/PIT 指标与 PIT-safe Style IC\n- [docs/V1_6_HARDENING.md](docs/V1_6_HARDENING.md)：Task Contract、Completion、显式降级、Temporal Provenance、Evaluation 与 remaining boundaries\n- [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback
+- [docs/V1_7_BENCHMARK.md](docs/V1_7_BENCHMARK.md)：三架构 Benchmark、Telemetry、Grounding/Completion/PIT 指标与 PIT-safe Style IC
+- [docs/V1_6_HARDENING.md](docs/V1_6_HARDENING.md)：Task Contract、Completion、显式降级、Temporal Provenance、Evaluation 与 remaining boundaries
+- [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback
 - [V1.4_VALIDATION.md](V1.4_VALIDATION.md)：当前离线验证边界
 
 ## 二次开发与许可证
