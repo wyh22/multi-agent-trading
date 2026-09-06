@@ -109,4 +109,5 @@ The following are deliberately not claimed as solved:
 - proving the adaptive Style IC history improves out-of-sample discovery;
 - semantic/LLM judge for grounding beyond deterministic heuristics;
 - automated trusted publication-date verification from first-party source APIs;
-- measured Single-Agent vs Fixed Deep Research vs Dynamic Supervisor benchmark results.\n  The V1.7 harness exists, but real model/data runs are still required.
+- measured Single-Agent vs Fixed Deep Research vs Dynamic Supervisor benchmark results.
+  The V1.7 harness exists, but real model/data runs are still required.
