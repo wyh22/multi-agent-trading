@@ -209,19 +209,23 @@ def test_adaptive_style_weights_are_pit_safe_and_shrunk_to_rule_prior(tmp_path):
     history = tmp_path / "style_ic.csv"
     rows = []
     for idx in range(20):
+        signal_date = pd.Timestamp("2026-06-01") + pd.Timedelta(days=idx)
+        available_date = signal_date + pd.Timedelta(days=20)
         rows.append(
             {
-                "date": f"2026-07-{idx + 1:02d}" if idx < 9 else f"2026-08-{idx - 8:02d}",
+                "date": signal_date.date().isoformat(),
+                "available_date": available_date.date().isoformat(),
                 "momentum_ic": 0.01,
                 "valuation_ic": 0.02,
                 "dividend_ic": 0.20,
                 "liquidity_ic": 0.03,
             }
         )
-    # Future row must be excluded even though it would strongly favor momentum.
+    # Signal is old enough, but its forward label matures after cutoff.
     rows.append(
         {
-            "date": "2026-10-01",
+            "date": "2026-08-01",
+            "available_date": "2026-10-01",
             "momentum_ic": 9.0,
             "valuation_ic": 0.0,
             "dividend_ic": 0.0,
@@ -248,6 +252,35 @@ def test_adaptive_style_weights_are_pit_safe_and_shrunk_to_rule_prior(tmp_path):
     assert adapted.weights["dividend"] > base["dividend"]
     assert adapted.weights["momentum"] < 0.7
     assert abs(sum(adapted.weights.values()) - 1.0) < 1e-9
+
+
+def test_adaptive_style_weights_fail_closed_without_label_availability(tmp_path):
+    history = tmp_path / "legacy_style_ic.csv"
+    pd.DataFrame(
+        [
+            {
+                "date": "2026-07-01",
+                "momentum_ic": 0.1,
+                "valuation_ic": 0.1,
+                "dividend_ic": 0.1,
+                "liquidity_ic": 0.1,
+            }
+        ]
+    ).to_csv(history, index=False)
+    base = {
+        "momentum": 0.40,
+        "valuation": 0.20,
+        "dividend": 0.15,
+        "liquidity": 0.25,
+    }
+    adapted = load_adaptive_style_weights(
+        "2026-09-05",
+        base_weights=base,
+        history_path=history,
+    )
+    assert adapted.used is False
+    assert adapted.weights == base
+    assert "available_date" in adapted.warning
 
 
 def test_web_ui_exposes_human_in_the_loop_controls():
