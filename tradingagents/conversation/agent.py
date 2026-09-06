@@ -21,6 +21,7 @@ from tradingagents.orchestration.schemas import (
     ExecutionResult,
     ResearchResponse,
     SupervisorAction,
+    TaskContract,
 )
 from tradingagents.orchestration.supervisor import ConversationSupervisor
 from tradingagents.skills.registry import BUILTIN_SKILLS
