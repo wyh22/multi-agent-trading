@@ -590,6 +590,8 @@ class ConversationAgent:
                         if execution_status != "SUCCESS"
                         else []
                     ),
+                    "evidence": answer,
+                    "tool_trace": [],
                 },
             )
 
@@ -629,6 +631,18 @@ class ConversationAgent:
                     "unavailable_sources": (
                         ["shared_rag"] if result.status != "SUCCESS" else []
                     ),
+                    "evidence": result.content,
+                    "tool_trace": [
+                        {
+                            "tool_name": "search_company_knowledge",
+                            "arguments": {
+                                "ticker": ticker,
+                                "query": action.objective or message,
+                                "as_of_date": cutoff,
+                            },
+                            "status": result.status,
+                        }
+                    ],
                 },
             )
 
@@ -669,6 +683,8 @@ class ConversationAgent:
                         for item in state.get("audit_issues", []) or []
                         if isinstance(item, dict) and item.get("instruction")
                     ],
+                    "evidence": research_context,
+                    "tool_trace": list(state.get("analyst_trace", []) or []),
                 },
             )
 
@@ -690,6 +706,7 @@ class ConversationAgent:
                 )
             evidence = []
             unavailable = []
+            tool_trace = []
             for item in tickers:
                 result = self.specialists.run(
                     "fundamentals",
@@ -698,6 +715,7 @@ class ConversationAgent:
                     objective=action.objective or message,
                 )
                 evidence.append(f"## {item}\n{result.content}")
+                tool_trace.extend(list(result.data.get("trace", []) or []))
                 if not result.ok:
                     unavailable.append(item)
             answer = self._synthesize(
@@ -714,6 +732,8 @@ class ConversationAgent:
                 {
                     "execution_status": "SUCCESS" if not unavailable else "NO_DATA",
                     "unavailable_sources": unavailable,
+                    "evidence": "\n\n".join(evidence),
+                    "tool_trace": tool_trace,
                 },
             )
 
