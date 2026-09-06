@@ -780,7 +780,11 @@ class ConversationAgent:
                     str(action.answer),
                     "respond",
                     None,
-                    {"execution_status": "SUCCESS"},
+                    {
+                        "execution_status": "SUCCESS",
+                        "evidence": research_context,
+                        "tool_trace": [],
+                    },
                 )
             prompt = f"""{self._system_prompt(
                 ticker=ticker,
@@ -799,17 +803,26 @@ class ConversationAgent:
 
         if action.action == "call_tool":
             if not action.target or action.target == "auto":
+                evidence: list[str] = []
+                tool_trace: list[dict[str, Any]] = []
+                answer = self._tool_chat(
+                    message=message,
+                    history=history,
+                    ticker=ticker,
+                    as_of_date=cutoff,
+                    research_context=research_context,
+                    evidence_sink=evidence,
+                    trace_sink=tool_trace,
+                )
                 return (
-                    self._tool_chat(
-                        message=message,
-                        history=history,
-                        ticker=ticker,
-                        as_of_date=cutoff,
-                        research_context=research_context,
-                    ),
+                    answer,
                     "tool:auto",
                     None,
-                    {"execution_status": "SUCCESS"},
+                    {
+                        "execution_status": "SUCCESS",
+                        "evidence": "\n\n".join(evidence),
+                        "tool_trace": tool_trace,
+                    },
                 )
             result = self._invoke_atomic_tool(
                 action.target,
@@ -834,6 +847,19 @@ class ConversationAgent:
                         [action.target] if result.status != "SUCCESS" else []
                     ),
                     "error_type": result.error_type,
+                    "evidence": result.content,
+                    "tool_trace": [
+                        {
+                            "tool_name": action.target,
+                            "arguments": self._inject_common_args(
+                                action.target,
+                                action.arguments,
+                                ticker=ticker,
+                                as_of_date=cutoff,
+                            ),
+                            "status": result.status,
+                        }
+                    ],
                 },
             )
 
@@ -873,6 +899,8 @@ class ConversationAgent:
                         [f"{target}_agent"] if result.status != "SUCCESS" else []
                     ),
                     "error_type": result.error_type,
+                    "evidence": result.content,
+                    "tool_trace": list(result.data.get("trace", []) or []),
                 },
             )
 
