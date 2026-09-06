@@ -11,7 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from tradingagents.dataflows.config import get_config
-from tradingagents.dataflows.symbol_utils import normalize_a_share_symbol
+from tradingagents.rag.scope import normalize_knowledge_scope
 from tradingagents.rag.chunking import chunk_document
 from tradingagents.rag.embeddings import build_embedder
 from tradingagents.rag.ingestion import ingest_path
@@ -72,7 +72,7 @@ def load_jsonl(path: Path):
         docs.append(
             KnowledgeDocument(
                 doc_id=str(row.get("doc_id") or f"{path.stem}-{line_no}"),
-                ticker=normalize_a_share_symbol(str(row["ticker"])),
+                ticker=normalize_knowledge_scope(str(row["ticker"])),
                 title=str(row.get("title", "")),
                 text=str(row["text"]),
                 publish_date=str(row["publish_date"]),
@@ -98,7 +98,7 @@ def load_directory(
         docs.append(
             KnowledgeDocument(
                 doc_id=f"{ticker}:{item.relative_to(path)}",
-                ticker=normalize_a_share_symbol(ticker),
+                ticker=normalize_knowledge_scope(ticker),
                 title=item.stem,
                 text=item.read_text(encoding="utf-8", errors="ignore"),
                 publish_date=publish_date,
