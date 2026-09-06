@@ -40,3 +40,6 @@ data_cache/
 *.out
 *.jsonl.tmp
 qdrant_storage/
+
+# --- Generated evaluation/RAG manifests
+evaluation/data/*.generated.jsonl
