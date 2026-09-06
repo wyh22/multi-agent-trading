@@ -1,6 +1,10 @@
+from langchain_core.messages import HumanMessage
 from pathlib import Path
 
+import tradingagents.dataflows.interface as data_interface
+
 from tradingagents.agents.schemas import AuditIssue, AuditResult
+from tradingagents.agents.analysts.news_analyst import _needs_insider_transactions
 from tradingagents.agents.utils.tool_registry import build_local_tool_groups
 from tradingagents.capabilities.registry import CapabilityRegistry, CapabilitySpec
 from tradingagents.conversation.store import ConversationStore
@@ -303,3 +307,57 @@ def test_supervisor_fallback_escalates_cross_domain_query_to_deep_research():
     )
     assert action.action == "run_deep_research"
     assert action.target == "deep_stock_research"
+
+
+def test_news_agent_hides_expensive_insider_tool_for_general_news_request():
+    messages = [
+        HumanMessage(
+            content="梳理节能风电近期最重要的公告、新闻和政策风险。"
+        )
+    ]
+    assert _needs_insider_transactions(messages) is False
+
+
+def test_news_agent_allows_insider_tool_for_explicit_management_holding_request():
+    messages = [
+        HumanMessage(
+            content="梳理节能风电近期董监高和高管增减持情况。"
+        )
+    ]
+    assert _needs_insider_transactions(messages) is True
+
+
+def test_company_news_vendor_failure_degrades_instead_of_raising(monkeypatch):
+    def boom(*_args, **_kwargs):
+        raise ValueError("upstream returned non-JSON")
+
+    original = data_interface.VENDOR_METHODS["get_news"]
+    monkeypatch.setattr(
+        data_interface,
+        "get_vendor",
+        lambda _category, _method=None: "cninfo",
+    )
+    monkeypatch.setitem(
+        data_interface.VENDOR_METHODS,
+        "get_news",
+        {"cninfo": boom},
+    )
+
+    result = data_interface.route_to_vendor(
+        "get_news",
+        "601016.SH",
+        "2026-06-01",
+        "2026-09-06",
+    )
+    assert result.startswith("DATA_UNAVAILABLE:")
+    assert "upstream returned non-JSON" in result
+
+    data_interface.VENDOR_METHODS["get_news"] = original
+
+
+def test_project_requires_cninfo_fixed_akshare_floor():
+    root = Path(__file__).resolve().parents[1]
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8")
+    assert "akshare>=1.18.67" in pyproject
+    assert "akshare>=1.18.67" in requirements
