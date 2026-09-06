@@ -2,72 +2,127 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
-
-_REPAIR_QUERY_GROUPS: tuple[tuple[tuple[str, ...], str], ...] = (
+# Generic equity-research dimensions. These are intentionally sector-agnostic.
+_DIMENSION_QUERIES: tuple[tuple[tuple[str, ...], str], ...] = (
     (
         (
             "主营业务",
+            "业务模式",
+            "经营情况",
             "业务与经营",
-            "装机容量",
-            "发电量",
-            "利用小时",
-            "运营规模",
-            "business operations",
-            "competitive position",
+            "产品",
+            "服务",
+            "产能",
+            "产量",
+            "销量",
+            "订单",
+            "客户",
+            "供应商",
+            "business",
+            "operations",
         ),
-        "主营业务构成 装机容量 发电量 利用小时 运营规模 项目布局 竞争优势 行业地位",
+        "主营业务 业务模式 产品服务 产能产量 销量订单 客户供应商 区域布局 经营数据",
     ),
     (
         (
-            "政策",
-            "规划",
-            "policy",
+            "竞争",
+            "行业地位",
+            "市场份额",
+            "护城河",
+            "competitive",
+            "competition",
+            "market share",
         ),
-        "风电 新能源 行业政策 产业规划 消纳政策 电价机制",
+        "行业竞争格局 市场份额 行业地位 核心竞争力 护城河 品牌渠道 技术优势 客户集中度",
     ),
     (
         (
-            "弃风",
-            "限电",
-            "消纳",
-            "curtailment",
+            "财务",
+            "现金流",
+            "盈利",
+            "毛利率",
+            "净利率",
+            "负债",
+            "应收",
+            "存货",
+            "financial",
+            "cash flow",
+            "profitability",
         ),
-        "弃风率 限电 新能源消纳 利用小时 并网约束",
-    ),
-    (
-        (
-            "补贴",
-            "国补",
-            "可再生能源补贴",
-            "subsidy",
-        ),
-        "可再生能源补贴 国补 补贴应收 回款 补贴退坡",
+        "营业收入 净利润 毛利率 现金流 资产负债 应收账款 存货 盈利质量 财务风险",
     ),
     (
         (
             "估值",
             "市盈率",
             "市净率",
+            "可比公司",
             "valuation",
+            "pe",
+            "pb",
         ),
-        "估值 市盈率 市净率 估值方法 同行业可比公司",
+        "估值 市盈率 市净率 EV EBITDA DCF 可比公司 估值区间",
+    ),
+    (
+        (
+            "增长",
+            "扩产",
+            "资本开支",
+            "在建工程",
+            "指引",
+            "guidance",
+            "capex",
+            "growth",
+        ),
+        "增长驱动 资本开支 在建工程 扩产计划 产能规划 业绩指引 新产品 新市场",
+    ),
+    (
+        (
+            "行业",
+            "政策",
+            "监管",
+            "产业链",
+            "供需",
+            "industry",
+            "policy",
+            "regulation",
+        ),
+        "行业周期 供需格局 产业链 政策监管 行业标准 价格机制 行业风险",
+    ),
+    (
+        (
+            "并购",
+            "重组",
+            "回购",
+            "增持",
+            "减持",
+            "股权激励",
+            "治理",
+            "诉讼",
+            "处罚",
+            "重大合同",
+            "corporate action",
+            "governance",
+        ),
+        "并购重组 回购 增减持 股权激励 公司治理 管理层 诉讼处罚 重大合同",
     ),
     (
         (
             "风险",
+            "不确定性",
             "risk",
         ),
-        "主要风险 经营风险 政策风险 项目建设风险 电价风险 消纳风险",
+        "经营风险 行业风险 政策风险 财务风险 原材料风险 汇率利率风险 信用风险 安全环保风险",
     ),
 )
 
 
-def build_repair_queries(text: str, *, max_queries: int = 4) -> list[str]:
-    """Build a small deterministic query set for document-evidence repair.
+def build_retrieval_queries(text: str, *, max_queries: int = 4) -> list[str]:
+    """Expand missing research dimensions into generic equity-research queries.
 
-    The function intentionally does not use an LLM: missing-item text is already
-    available from the Task Contract / Completion Gate, so deterministic query
-    expansion is cheaper, reproducible and easier to benchmark.
+    This planner is deterministic and sector-agnostic. The original missing-item
+    text remains the source of intent; generic query templates only improve
+    recall for common equity-research dimensions.
     """
 
     raw = str(text or "").strip()
@@ -76,24 +131,26 @@ def build_repair_queries(text: str, *, max_queries: int = 4) -> list[str]:
 
     normalized = raw.lower()
     queries: "OrderedDict[str, None]" = OrderedDict()
-    for keywords, query in _REPAIR_QUERY_GROUPS:
+    for keywords, query in _DIMENSION_QUERIES:
         if any(keyword.lower() in normalized for keyword in keywords):
             queries.setdefault(query, None)
         if len(queries) >= max(1, int(max_queries)):
             break
 
-    if not queries:
-        queries[raw[:500]] = None
+    # Always preserve the user's / Completion Gate's exact wording as one query
+    # when capacity remains. This prevents the taxonomy from erasing niche needs.
+    if len(queries) < max(1, int(max_queries)):
+        queries.setdefault(raw[:500], None)
 
     return list(queries)[: max(1, int(max_queries))]
 
 
-def source_document_key(chunk) -> str:
-    """Return a stable parent-document key for retrieval diversity.
+# Backward-compatible name used by the repair loop.
+build_repair_queries = build_retrieval_queries
 
-    PDF pages have page-specific doc_ids, while all pages share file_hash.
-    Grouping by file_hash prevents one long PDF from occupying every top-k slot.
-    """
+
+def source_document_key(chunk) -> str:
+    """Stable parent-document key for retrieval diversity."""
 
     metadata = getattr(chunk, "metadata", {}) or {}
     return str(metadata.get("file_hash") or getattr(chunk, "doc_id", ""))
