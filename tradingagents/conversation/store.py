@@ -149,6 +149,38 @@ class ConversationStore:
             data["metadata"] = {}
         return data
 
+    def list_threads(self, *, limit: int = 20) -> list[dict[str, Any]]:
+        """Return the most recently updated conversation threads."""
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    t.*,
+                    (
+                        SELECT COUNT(*)
+                        FROM conversation_messages m
+                        WHERE m.thread_id=t.thread_id
+                    ) AS message_count
+                FROM conversation_threads t
+                ORDER BY t.updated_at DESC
+                LIMIT ?
+                """,
+                (max(1, min(int(limit), 100)),),
+            ).fetchall()
+
+        threads: list[dict[str, Any]] = []
+        for row in rows:
+            data = dict(row)
+            try:
+                data["metadata"] = json.loads(
+                    data.pop("metadata_json") or "{}"
+                )
+            except json.JSONDecodeError:
+                data["metadata"] = {}
+            threads.append(data)
+        return threads
+
     def update_context(
         self,
         thread_id: str,

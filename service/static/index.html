@@ -12,19 +12,20 @@
     .row{display:flex;gap:8px;margin-top:12px}.row input,.row textarea{flex:1;padding:10px;border:1px solid #d0d7de;border-radius:8px}
     .row textarea{min-height:72px;resize:vertical}
     button{padding:10px 16px;border:0;border-radius:8px;background:#0969da;color:white;cursor:pointer}button:disabled{opacity:.5}
-    .meta{font-size:12px;color:#57606a;margin:8px 0}.top{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .meta{font-size:12px;color:#57606a;margin:8px 0}.top{display:grid;grid-template-columns:1fr 1fr auto;gap:8px}
     .state{display:inline-block;padding:3px 8px;border-radius:999px;font-weight:600;margin-right:6px}
     .COMPLETE{background:#dafbe1}.PARTIAL{background:#fff8c5}.REVIEW_REQUIRED{background:#fff1e5}
     .DATA_UNAVAILABLE{background:#ddf4ff}.SYSTEM_ERROR{background:#ffebe9}
-    #actions{display:flex;gap:8px;margin-top:8px}#actions button{background:#57606a}
+    #actions{display:flex;gap:8px;margin-top:8px}#actions button,#newChat{background:#57606a}
   </style>
 </head>
 <body>
   <h2>TradingAgents A股研究助手</h2>
-  <div class="meta">Conversation-first Supervisor 会按任务复杂度选择 Tool、专业 Agent 或 Deep Research；非完整结果会显式标注。</div>
+  <div class="meta">Conversation-first Supervisor 会按任务复杂度选择 Tool、专业 Agent 或 Deep Research；会话会持久化到本地 SQLite，刷新或重新打开页面后自动恢复。</div>
   <div class="top">
     <input id="ticker" placeholder="可选股票代码，如600519.SH" />
     <input id="date" type="date" />
+    <button id="newChat" type="button">新建会话</button>
   </div>
   <div id="chat"></div>
   <div class="row">
@@ -34,30 +35,64 @@
   <div class="meta" id="status"></div>
   <div id="actions"></div>
 <script>
-let threadId=localStorage.getItem('tradingagents_thread_id')||null;
-document.getElementById('date').value=new Date().toISOString().slice(0,10);
+const STORAGE={
+  thread:'tradingagents_thread_id',
+  draft:'tradingagents_message_draft',
+  ticker:'tradingagents_ticker',
+  date:'tradingagents_as_of_date'
+};
 
-function add(role,text){
+let threadId=localStorage.getItem(STORAGE.thread)||null;
+
+const chatBox=document.getElementById('chat');
+const tickerInput=document.getElementById('ticker');
+const dateInput=document.getElementById('date');
+const messageInput=document.getElementById('message');
+const statusBox=document.getElementById('status');
+const actionsBox=document.getElementById('actions');
+
+dateInput.value=localStorage.getItem(STORAGE.date)||new Date().toISOString().slice(0,10);
+tickerInput.value=localStorage.getItem(STORAGE.ticker)||'';
+messageInput.value=localStorage.getItem(STORAGE.draft)||'';
+
+function add(role,text,scroll=true){
   const d=document.createElement('div');
   d.className='msg '+role;
   d.textContent=text;
-  document.getElementById('chat').appendChild(d);
-  d.scrollIntoView({behavior:'smooth'});
+  chatBox.appendChild(d);
+  if(scroll)d.scrollIntoView({behavior:'smooth'});
+}
+
+function clearRenderedConversation(){
+  chatBox.innerHTML='';
+  actionsBox.innerHTML='';
+  statusBox.textContent='';
+}
+
+function renderStatus(data){
+  const status=data.status||'COMPLETE';
+  const missing=(data.missing_items||[]).slice(0,5).join('、');
+  const parts=[
+    '<span class="state '+status+'">'+status+'</span>',
+    data.thread_id?'thread='+data.thread_id:'',
+    data.route?'route='+data.route:'',
+    'ticker='+(data.ticker||'未指定')
+  ].filter(Boolean);
+  statusBox.innerHTML=parts.join(' · ')+(missing?' · missing='+missing:'');
 }
 
 function renderActions(data){
-  const box=document.getElementById('actions');
-  box.innerHTML='';
+  actionsBox.innerHTML='';
   if(!['PARTIAL','REVIEW_REQUIRED','DATA_UNAVAILABLE'].includes(data.status))return;
 
   const cont=document.createElement('button');
   cont.textContent='继续补查缺失项';
   cont.onclick=()=>{
-    document.getElementById('message').value=
-      '请继续补查上一轮尚未覆盖或缺少证据的项目，并优先处理关键缺口。';
+    messageInput.value='请继续补查上一轮尚未覆盖或缺少证据的项目，并优先处理关键缺口。';
+    localStorage.setItem(STORAGE.draft,messageInput.value);
     send();
   };
-  box.appendChild(cont);
+  actionsBox.appendChild(cont);
 
   if(data.active_research_version_id){
     const rollback=document.createElement('button');
@@ -65,7 +100,7 @@ function renderActions(data){
     rollback.onclick=async()=>{
       try{
         const r=await fetch(
-          `/chat/${threadId}/rollback`,
+          `/chat/${encodeURIComponent(threadId)}/rollback`,
           {
             method:'POST',
             headers:{'Content-Type':'application/json'},
@@ -79,24 +114,117 @@ function renderActions(data){
         add('assistant','回滚失败：'+e.message);
       }
     };
-    box.appendChild(rollback);
+    actionsBox.appendChild(rollback);
   }
+}
+
+function responseStateFromThread(thread){
+  const metadata=thread.metadata||{};
+  const completion=metadata.completion||{};
+  return {
+    status:metadata.response_status||'',
+    thread_id:thread.thread_id,
+    route:thread.last_intent||'',
+    ticker:thread.current_ticker||null,
+    missing_items:completion.missing_items||[],
+    active_research_version_id:metadata.active_research_version_id||null
+  };
+}
+
+async function loadThread(id){
+  if(!id)return false;
+  try{
+    const r=await fetch(`/chat/${encodeURIComponent(id)}?limit=100`);
+    if(r.status===404)return false;
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.detail||r.statusText);
+
+    clearRenderedConversation();
+    for(const item of data.messages||[]){
+      if(item.role==='user'||item.role==='assistant'){
+        add(item.role,item.content,false);
+      }
+    }
+
+    const thread=data.thread||{};
+    threadId=thread.thread_id||id;
+    localStorage.setItem(STORAGE.thread,threadId);
+
+    if(thread.current_ticker){
+      tickerInput.value=thread.current_ticker;
+      localStorage.setItem(STORAGE.ticker,thread.current_ticker);
+    }
+    if(thread.as_of_date){
+      dateInput.value=thread.as_of_date;
+      localStorage.setItem(STORAGE.date,thread.as_of_date);
+    }
+
+    const state=responseStateFromThread(thread);
+    if(state.status){
+      renderStatus(state);
+      renderActions(state);
+    }else{
+      statusBox.textContent=`已恢复会话 thread=${threadId}`;
+    }
+
+    chatBox.scrollTop=chatBox.scrollHeight;
+    return true;
+  }catch(e){
+    statusBox.textContent='恢复会话失败：'+e.message;
+    return false;
+  }
+}
+
+async function restoreConversation(){
+  statusBox.textContent='正在恢复上次会话…';
+
+  if(threadId&&await loadThread(threadId))return;
+
+  if(threadId){
+    localStorage.removeItem(STORAGE.thread);
+    threadId=null;
+  }
+
+  try{
+    const r=await fetch('/chats/recent?limit=1');
+    const data=await r.json();
+    if(r.ok&&data.threads&&data.threads.length){
+      await loadThread(data.threads[0].thread_id);
+      return;
+    }
+  }catch(_e){
+    // No server-side fallback available; start with an empty UI.
+  }
+  statusBox.textContent='';
+}
+
+function startNewChat(){
+  threadId=null;
+  localStorage.removeItem(STORAGE.thread);
+  localStorage.removeItem(STORAGE.draft);
+  messageInput.value='';
+  tickerInput.value='';
+  localStorage.removeItem(STORAGE.ticker);
+  clearRenderedConversation();
+  statusBox.textContent='已新建空白会话；旧会话仍保存在本地数据库中。';
 }
 
 async function send(){
   const btn=document.getElementById('send');
-  const msg=document.getElementById('message').value.trim();
+  const msg=messageInput.value.trim();
   if(!msg)return;
+
   add('user',msg);
-  document.getElementById('message').value='';
+  messageInput.value='';
+  localStorage.removeItem(STORAGE.draft);
   btn.disabled=true;
-  document.getElementById('status').textContent='处理中…';
+  statusBox.textContent='处理中…';
 
   const body={
     message:msg,
     thread_id:threadId,
-    ticker:document.getElementById('ticker').value.trim()||null,
-    as_of_date:document.getElementById('date').value
+    ticker:tickerInput.value.trim()||null,
+    as_of_date:dateInput.value
   };
 
   try{
@@ -112,26 +240,32 @@ async function send(){
     if(!r.ok)throw new Error(data.detail||r.statusText);
 
     threadId=data.thread_id;
-    localStorage.setItem('tradingagents_thread_id',threadId);
+    localStorage.setItem(STORAGE.thread,threadId);
+    if(data.ticker){
+      tickerInput.value=data.ticker;
+      localStorage.setItem(STORAGE.ticker,data.ticker);
+    }
+    if(data.as_of_date){
+      dateInput.value=data.as_of_date;
+      localStorage.setItem(STORAGE.date,data.as_of_date);
+    }
     add('assistant',data.answer);
-
-    const status=data.status||'COMPLETE';
-    const missing=(data.missing_items||[]).slice(0,5).join('、');
-    document.getElementById('status').innerHTML=
-      `<span class="state ${status}">${status}</span> thread=${threadId} · route=${data.route} · ticker=${data.ticker||'未指定'}`
-      +(missing?` · missing=${missing}`:'');
+    renderStatus(data);
     renderActions(data);
   }catch(e){
     add('assistant','请求失败：'+e.message);
-    document.getElementById('status').innerHTML=
-      '<span class="state SYSTEM_ERROR">SYSTEM_ERROR</span>';
+    statusBox.innerHTML='<span class="state SYSTEM_ERROR">SYSTEM_ERROR</span>';
   }finally{
     btn.disabled=false;
   }
 }
 
 document.getElementById('send').onclick=send;
-document.getElementById('message').addEventListener(
+document.getElementById('newChat').onclick=startNewChat;
+messageInput.addEventListener('input',()=>localStorage.setItem(STORAGE.draft,messageInput.value));
+tickerInput.addEventListener('input',()=>localStorage.setItem(STORAGE.ticker,tickerInput.value));
+dateInput.addEventListener('change',()=>localStorage.setItem(STORAGE.date,dateInput.value));
+messageInput.addEventListener(
   'keydown',
   e=>{
     if(e.key==='Enter'&&!e.shiftKey){
@@ -140,6 +274,8 @@ document.getElementById('message').addEventListener(
     }
   }
 );
+
+restoreConversation();
 </script>
 </body>
 </html>
