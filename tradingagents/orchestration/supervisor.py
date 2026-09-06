@@ -21,6 +21,43 @@ class ConversationSupervisor:
             llm, SupervisorAction, "Conversation Supervisor"
         )
 
+    @staticmethod
+    def _normalize_target(action: SupervisorAction) -> SupervisorAction:
+        """Normalize catalog-style targets such as agent:market.
+
+        The capability catalog is rendered as kind:name for readability,
+        while the execution registry stores the bare capability name. Some LLMs
+        copy the catalog token verbatim into target. Treat that as a valid
+        structured action instead of unnecessarily falling back.
+        """
+
+        if not action.target:
+            return action
+
+        target = str(action.target).strip()
+        expected_kind = {
+            "call_tool": "tool",
+            "delegate_agent": "agent",
+            "run_skill": "skill",
+        }.get(action.action)
+
+        if ":" in target:
+            prefix, bare = target.split(":", 1)
+            prefix = prefix.strip().lower()
+            if prefix in {"tool", "agent", "skill"}:
+                if expected_kind is not None and prefix != expected_kind:
+                    raise ValueError(
+                        "capability kind mismatch: "
+                        f"action={action.action}, target={target}"
+                    )
+                target = bare.strip()
+
+        if action.action == "delegate_agent":
+            target = target.removesuffix("_agent")
+
+        action.target = target
+        return action
+
     def _fallback(
         self,
         message: str,
@@ -33,16 +70,96 @@ class ConversationSupervisor:
             current_ticker=current_ticker,
             force_mode=force_mode,
         )
-        if route.intent == "research":
+        if route.intent == "discovery":
+            return SupervisorAction(
+                action="run_skill",
+                target="sector_discovery",
+                objective=message,
+            )
+
+        normalized = (message or "").strip().lower()
+        full_research_words = (
+            "深度分析",
+            "深度研究",
+            "完整分析",
+            "完整研究",
+            "投研报告",
+            "研报",
+            "全面分析",
+            "重新分析",
+            "重新研究",
+        )
+        if any(word in normalized for word in full_research_words):
             return SupervisorAction(
                 action="run_deep_research",
                 target="deep_stock_research",
                 objective=message,
             )
-        if route.intent == "discovery":
+
+        ticker = route.ticker or current_ticker
+        if ticker:
+            domain_words = {
+                "market": (
+                    "技术趋势",
+                    "技术面",
+                    "动量",
+                    "均线",
+                    "macd",
+                    "rsi",
+                    "支撑位",
+                    "压力位",
+                    "成交量",
+                    "波动率",
+                    "技术风险",
+                ),
+                "fundamentals": (
+                    "基本面",
+                    "现金流",
+                    "盈利质量",
+                    "盈利能力",
+                    "营收",
+                    "利润",
+                    "毛利率",
+                    "净利率",
+                    "roe",
+                    "资产负债",
+                    "偿债",
+                    "估值",
+                    "市盈率",
+                    "市净率",
+                ),
+                "news": (
+                    "公告",
+                    "新闻",
+                    "政策",
+                    "舆情",
+                    "监管",
+                    "事件风险",
+                    "宏观",
+                ),
+            }
+            matched = [
+                name
+                for name, words in domain_words.items()
+                if any(word in normalized for word in words)
+            ]
+            if len(matched) == 1 and self.registry.get(matched[0]) is not None:
+                return SupervisorAction(
+                    action="delegate_agent",
+                    target=matched[0],
+                    objective=message,
+                )
+            if len(matched) >= 2:
+                return SupervisorAction(
+                    action="run_deep_research",
+                    target="deep_stock_research",
+                    objective=message,
+                )
+
+        if route.intent == "research":
             return SupervisorAction(
-                action="run_skill",
-                target="sector_discovery",
+                action="run_deep_research",
+                target="deep_stock_research",
                 objective=message,
             )
         return SupervisorAction(
@@ -119,7 +236,7 @@ class ConversationSupervisor:
 用户当前请求：
 {message}
 
-只返回一个结构化动作。objective 说明要完成的任务；arguments 只放执行所需参数。
+只返回一个结构化动作。objective 说明要完成的任务；arguments 只放执行所需参数。\ntarget 必须只填写 capability 的裸名称，不要带 tool:/agent:/skill: 前缀。\n例如 target 应写 get_verified_market_snapshot、market、sector_discovery。
 """.strip()
 
         if self.structured_llm is None:
@@ -128,15 +245,13 @@ class ConversationSupervisor:
             action = self.structured_llm.invoke(prompt)
             if action is None:
                 raise ValueError("supervisor returned no structured action")
+            action = self._normalize_target(action)
             if action.target and action.action in {
                 "call_tool",
                 "delegate_agent",
                 "run_skill",
             }:
                 target = action.target
-                if action.action == "delegate_agent":
-                    target = target.removesuffix("_agent")
-                    action.target = target
                 if self.registry.get(target) is None and target != "auto":
                     raise ValueError(f"unknown capability target: {target}")
             return action
