@@ -95,7 +95,9 @@ def analyze(req: AnalyzeRequest):
             req.trade_date,
             candidate_context=req.candidate_context or "",
         )
+        audit_status = str(state.get("audit_status", "") or "").upper()
         return {
+            "status": "COMPLETE" if audit_status == "PASS" else "REVIEW_REQUIRED",
             "ticker": req.ticker,
             "trade_date": req.trade_date,
             "signal": signal,
@@ -140,7 +142,15 @@ def research_pool(req: ResearchPoolRequest):
             ml_model_path=DEFAULT_CONFIG.get("sector_ml_model_path") or None,
             ml_weight=float(DEFAULT_CONFIG.get("sector_ml_weight", 0.5)),
         )
+        warnings = list(result.representatives.warnings or [])
+        component_unavailable = any(
+            "COMPONENT_DATA_UNAVAILABLE" in warning
+            for warning in warnings
+        )
         return {
+            "status": (
+                "DATA_UNAVAILABLE" if component_unavailable else "COMPLETE"
+            ),
             "as_of_date": result.as_of_date,
             "market_regime": result.discovery.market.regime,
             "market_score": result.discovery.market.score,
@@ -149,7 +159,12 @@ def research_pool(req: ResearchPoolRequest):
             "representatives": (
                 result.representatives.representatives.to_dict(orient="records")
             ),
-            "warnings": result.representatives.warnings,
+            "warnings": warnings,
+            "user_action_required": (
+                "行业发现仍可使用；请等待/更换成分数据源后再生成 Representative Pool。"
+                if component_unavailable
+                else ""
+            ),
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
