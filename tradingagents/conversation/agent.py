@@ -24,6 +24,7 @@ from tradingagents.orchestration.schemas import (
     TaskContract,
 )
 from tradingagents.orchestration.supervisor import ConversationSupervisor
+from tradingagents.rag.evidence_pack import build_repair_queries
 from tradingagents.skills.registry import BUILTIN_SKILLS
 
 logger = logging.getLogger(__name__)
@@ -615,18 +616,80 @@ class ConversationAgent:
                         "evidence_gaps": ["missing ticker"],
                     },
                 )
-            result = self._invoke_atomic_tool(
-                "search_company_knowledge",
-                {
-                    "query": action.objective or message,
-                    "top_k": int(action.arguments.get("top_k", 6) or 6),
-                },
-                ticker=ticker,
-                as_of_date=cutoff,
+
+            raw_queries = action.arguments.get("queries")
+            if isinstance(raw_queries, list):
+                queries = [
+                    str(item).strip()
+                    for item in raw_queries
+                    if str(item).strip()
+                ]
+            else:
+                queries = build_repair_queries(
+                    action.objective or message,
+                    max_queries=int(
+                        self.config.get("rag_repair_max_queries", 4)
+                    ),
+                )
+            if not queries:
+                queries = [action.objective or message]
+            queries = queries[: max(1, int(self.config.get("rag_repair_max_queries", 4)))]
+
+            per_query_top_k = max(
+                2,
+                min(
+                    int(action.arguments.get("top_k", 4) or 4),
+                    8,
+                ),
+            )
+            results = []
+            tool_trace = []
+            evidence_gaps = []
+            for query in queries:
+                result = self._invoke_atomic_tool(
+                    "search_company_knowledge",
+                    {
+                        "query": query,
+                        "top_k": per_query_top_k,
+                    },
+                    ticker=ticker,
+                    as_of_date=cutoff,
+                )
+                results.append(result)
+                tool_trace.append(
+                    {
+                        "tool_name": "search_company_knowledge",
+                        "arguments": {
+                            "ticker": ticker,
+                            "query": query,
+                            "as_of_date": cutoff,
+                            "top_k": per_query_top_k,
+                        },
+                        "status": result.status,
+                    }
+                )
+                if result.status != "SUCCESS":
+                    evidence_gaps.append(
+                        f"RAG query 未取得可用证据: {query}"
+                    )
+
+            successful = [
+                result for result in results if result.status == "SUCCESS"
+            ]
+            if successful:
+                execution_status = "SUCCESS"
+            elif any(result.status == "UNAVAILABLE" for result in results):
+                execution_status = "UNAVAILABLE"
+            else:
+                execution_status = "NO_DATA"
+
+            evidence = "\n\n".join(
+                f"### Query: {query}\n{result.content}"
+                for query, result in zip(queries, results, strict=True)
             )
             answer = self._synthesize(
                 message=message,
-                evidence=result.content,
+                evidence=evidence,
                 ticker=ticker,
                 as_of_date=cutoff,
                 research_context=str(thread.get("research_context", "") or ""),
@@ -636,22 +699,15 @@ class ConversationAgent:
                 "skill:document_evidence_analysis",
                 None,
                 {
-                    "execution_status": result.status,
+                    "execution_status": execution_status,
                     "unavailable_sources": (
-                        ["shared_rag"] if result.status != "SUCCESS" else []
+                        ["shared_rag"]
+                        if execution_status != "SUCCESS"
+                        else []
                     ),
-                    "evidence": result.content,
-                    "tool_trace": [
-                        {
-                            "tool_name": "search_company_knowledge",
-                            "arguments": {
-                                "ticker": ticker,
-                                "query": action.objective or message,
-                                "as_of_date": cutoff,
-                            },
-                            "status": result.status,
-                        }
-                    ],
+                    "evidence_gaps": evidence_gaps,
+                    "evidence": evidence,
+                    "tool_trace": tool_trace,
                 },
             )
 
