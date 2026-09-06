@@ -19,6 +19,47 @@ from tradingagents.rag.models import KnowledgeDocument
 from tradingagents.rag.store import QdrantKnowledgeStore
 
 
+def _provenance_metadata(row: dict) -> dict:
+    metadata = dict(row.get("metadata", {}) or {})
+    source = str(
+        row.get("publish_date_source")
+        or metadata.get("publish_date_source")
+        or "USER"
+    ).upper()
+    confidence = float(
+        row.get(
+            "publish_date_confidence",
+            metadata.get("publish_date_confidence", 0.5),
+        )
+    )
+    verified = bool(
+        row.get(
+            "publish_date_verified",
+            metadata.get("publish_date_verified", False),
+        )
+    )
+    metadata.update(
+        {
+            "publish_date_source": source,
+            "publish_date_confidence": max(0.0, min(1.0, confidence)),
+            "publish_date_verified": verified,
+            "source_authority": str(
+                row.get("source_authority")
+                or metadata.get("source_authority")
+                or row.get("source")
+                or ""
+            ),
+            "source_url": str(
+                row.get("source_url")
+                or metadata.get("source_url")
+                or row.get("url")
+                or ""
+            ),
+        }
+    )
+    return metadata
+
+
 def load_jsonl(path: Path):
     docs = []
     for line_no, line in enumerate(
@@ -38,7 +79,7 @@ def load_jsonl(path: Path):
                 source=str(row.get("source", "local")),
                 url=str(row.get("url", "")),
                 doc_type=str(row.get("doc_type", "document")),
-                metadata=dict(row.get("metadata", {}) or {}),
+                metadata=_provenance_metadata(row),
             )
         )
     return docs
@@ -107,6 +148,31 @@ def main():
     parser.add_argument("--ticker")
     parser.add_argument("--publish-date")
     parser.add_argument("--doc-type", default="document")
+    parser.add_argument(
+        "--publish-date-source",
+        default="USER",
+        help="披露日来源，例如 USER/CNINFO/SSE/SZSE/COMPANY_IR",
+    )
+    parser.add_argument(
+        "--publish-date-confidence",
+        type=float,
+        default=0.5,
+    )
+    parser.add_argument(
+        "--publish-date-verified",
+        action="store_true",
+        help="仅在你已核验官方披露日时使用；历史 PIT 检索依赖该标记",
+    )
+    parser.add_argument(
+        "--source-authority",
+        default="",
+        help="原始权威来源，例如 CNINFO/SSE/SZSE/COMPANY_IR",
+    )
+    parser.add_argument(
+        "--source-url",
+        default="",
+        help="原始公告/财报 URL；不要填写临时下载地址",
+    )
     parser.add_argument("--chunk-chars", type=int, default=900)
     parser.add_argument("--overlap-chars", type=int, default=120)
     args = parser.parse_args()
@@ -124,6 +190,11 @@ def main():
             doc_type=args.doc_type,
             chunk_chars=args.chunk_chars,
             overlap_chars=args.overlap_chars,
+            publish_date_source=args.publish_date_source,
+            publish_date_confidence=args.publish_date_confidence,
+            publish_date_verified=args.publish_date_verified,
+            source_authority=args.source_authority or None,
+            source_url=args.source_url or None,
         )
         print(
             f"documents={result['documents']} chunks={result['chunks']} "
