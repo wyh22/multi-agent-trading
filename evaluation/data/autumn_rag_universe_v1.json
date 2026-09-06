@@ -1,0 +1,67 @@
+{
+  "name": "autumn_recruitment_demo_universe_v1",
+  "objective": "Small, cross-industry A-share corpus for interview/demo coverage rather than market-wide ingestion.",
+  "target_documents_per_company": 3,
+  "stocks": [
+    {
+      "ticker": "600519.SH",
+      "name": "贵州茅台",
+      "industry": "食品饮料",
+      "reason": "消费龙头，适合验证品牌、渠道、价格体系与现金流叙事"
+    },
+    {
+      "ticker": "300750.SZ",
+      "name": "宁德时代",
+      "industry": "电力设备",
+      "reason": "成长制造，适合验证产能、客户、技术、资本开支与全球化"
+    },
+    {
+      "ticker": "002594.SZ",
+      "name": "比亚迪",
+      "industry": "汽车",
+      "reason": "汽车制造，适合验证销量、产品、供应链与海外业务"
+    },
+    {
+      "ticker": "600036.SH",
+      "name": "招商银行",
+      "industry": "银行",
+      "reason": "金融行业，适合验证息差、资产质量、零售业务与监管材料"
+    },
+    {
+      "ticker": "600276.SH",
+      "name": "恒瑞医药",
+      "industry": "医药生物",
+      "reason": "医药研发，适合验证研发管线、商业化、政策与竞争格局"
+    },
+    {
+      "ticker": "688981.SH",
+      "name": "中芯国际",
+      "industry": "电子",
+      "reason": "半导体制造，适合验证产能、资本开支、周期与技术竞争"
+    },
+    {
+      "ticker": "000333.SZ",
+      "name": "美的集团",
+      "industry": "家用电器",
+      "reason": "成熟制造，适合验证多业务、海外收入、渠道和经营质量"
+    },
+    {
+      "ticker": "601899.SH",
+      "name": "紫金矿业",
+      "industry": "有色金属",
+      "reason": "资源周期，适合验证产量、成本、项目扩张与商品价格风险"
+    },
+    {
+      "ticker": "600941.SH",
+      "name": "中国移动",
+      "industry": "通信",
+      "reason": "高现金流运营商，适合验证ARPU、资本开支、云与数字化业务"
+    },
+    {
+      "ticker": "601016.SH",
+      "name": "节能风电",
+      "industry": "公用事业",
+      "reason": "保留现有端到端验证标的，同时覆盖公用事业/新能源运营模式"
+    }
+  ]
+}
