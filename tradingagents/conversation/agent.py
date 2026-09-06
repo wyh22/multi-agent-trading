@@ -441,6 +441,12 @@ class ConversationAgent:
                 strict_pit=True,
                 ml_model_path=self.config.get("sector_ml_model_path") or None,
                 ml_weight=float(self.config.get("sector_ml_weight", 0.5)),
+                style_ic_history_path=(
+                    self.config.get("style_ic_history_path") or None
+                ),
+                adaptive_style_strength=float(
+                    self.config.get("adaptive_style_strength", 0.5)
+                ),
             )
             result = pool.discovery
             rows = result.sectors.sectors.to_dict(orient="records")
@@ -466,21 +472,44 @@ class ConversationAgent:
                         f"代表性分={float(rep.get('representative_score', 0.0)):.2f}，"
                         f"{rep.get('selection_reason','')}"
                     )
-            lines.append(
-                "代表股只是研究入口，不是买入推荐；后续深度研究必须重新验证。"
+            warnings = list(pool.representatives.warnings or [])
+            component_unavailable = any(
+                "COMPONENT_DATA_UNAVAILABLE" in warning
+                for warning in warnings
             )
+            if component_unavailable:
+                lines.append(
+                    "成分数据当前不可验证，Representative Pool 已 fail closed；"
+                    "以上行业发现仍可参考，但不会输出偏置的部分代表股池。"
+                )
+            else:
+                lines.append(
+                    "代表股只是研究入口，不是买入推荐；后续深度研究必须重新验证。"
+                )
             context_map = {
                 str(item.get("ticker")): str(item.get("research_context") or "")
                 for item in reps
                 if item.get("ticker")
             }
-            return "\n".join(lines), {"representative_contexts": context_map}
+            return "\n".join(lines), {
+                "representative_contexts": context_map,
+                "_execution_status": (
+                    "NO_DATA" if component_unavailable else "SUCCESS"
+                ),
+                "warnings": warnings,
+            }
 
         result = run_discovery(
             cutoff,
             top_n=top_n,
             ml_model_path=self.config.get("sector_ml_model_path") or None,
             ml_weight=float(self.config.get("sector_ml_weight", 0.5)),
+            style_ic_history_path=(
+                self.config.get("style_ic_history_path") or None
+            ),
+            adaptive_style_strength=float(
+                self.config.get("adaptive_style_strength", 0.5)
+            ),
         )
         rows = result.sectors.sectors.head(top_n).to_dict(orient="records")
         lines = [
@@ -494,7 +523,12 @@ class ConversationAgent:
                 f"Style={row.get('style_profile') or row.get('primary_style') or 'N/A'}"
             )
         lines.append("以上是研究优先级，不是个股买入清单。")
-        return "\n".join(lines), {}
+        return "\n".join(lines), {
+            "_execution_status": "SUCCESS",
+            "style_weight_source": result.metadata.get(
+                "style_weight_source", "regime_rule"
+            ),
+        }
 
     def _run_skill(
         self,
@@ -508,11 +542,22 @@ class ConversationAgent:
         target = str(action.target or "")
         if target == "sector_discovery":
             answer, metadata = self._run_sector_skill(message, cutoff)
+            metadata = dict(metadata or {})
+            execution_status = str(
+                metadata.pop("_execution_status", "SUCCESS")
+            )
             return (
                 answer,
                 "skill:sector_discovery",
                 {"kind": "context_metadata", "metadata": metadata},
-                {"execution_status": "SUCCESS"},
+                {
+                    "execution_status": execution_status,
+                    "unavailable_sources": (
+                        ["sector_components"]
+                        if execution_status != "SUCCESS"
+                        else []
+                    ),
+                },
             )
 
         if target == "document_evidence_analysis":
