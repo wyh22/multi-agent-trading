@@ -15,8 +15,8 @@ from tradingagents.discovery.pipeline import run_discovery, run_research_pool
 from tradingagents.graph.trading_graph import TradingAgentsGraph, _coerce_max_retries
 from tradingagents.llm_clients import create_llm_client
 from tradingagents.orchestration.analyst_executor import SpecialistAgentExecutor
-from tradingagents.orchestration.schemas import ExecutionResult, SupervisorAction
-from tradingagents.orchestration.supervisor import ConversationSupervisor
+from tradingagents.orchestration.completion import CompletionGate, TaskContractBuilder
+from tradingagents.orchestration.schemas import (\n    CompletionAssessment,\n    ExecutionResult,\n    ResearchResponse,\n    SupervisorAction,\n)\nfrom tradingagents.orchestration.supervisor import ConversationSupervisor
 from tradingagents.skills.registry import BUILTIN_SKILLS
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,8 @@ class ConversationAgent:
         self.llm_with_tools = self.llm.bind_tools(self.tools) if self.tools else self.llm
         self.registry = self._build_capability_registry()
         self.supervisor = ConversationSupervisor(self.llm, self.registry)
+        self.task_contract_builder = TaskContractBuilder(self.llm)
+        self.completion_gate = CompletionGate(self.llm)
         self.specialists = SpecialistAgentExecutor(
             self.llm,
             self.tool_groups,
