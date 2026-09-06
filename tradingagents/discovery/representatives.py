@@ -178,6 +178,26 @@ def select_representative_stocks(
         max_per_sector=component_limit,
         component_fetcher=component_fetcher,
     )
+    snapshot = dict(components.attrs.get("component_snapshot", {}) or {})
+    unavailable = list(snapshot.get("unavailable_sectors", []) or [])
+    if unavailable:
+        details = "; ".join(
+            f"{item.get('sector_name') or item.get('sector_code')}: "
+            f"{item.get('reason', 'unavailable')}"
+            for item in unavailable[:5]
+            if isinstance(item, dict)
+        )
+        return RepresentativeSelectionResult(
+            as_of_date=as_of_date,
+            representatives=pd.DataFrame(),
+            universe_size=len(components),
+            scored_size=0,
+            warnings=[
+                "COMPONENT_DATA_UNAVAILABLE: 行业成分数据不完整，"
+                "Representative Pool 已 fail closed，避免用部分/偏置成分继续研究。",
+                details,
+            ],
+        )
     if components.empty:
         return RepresentativeSelectionResult(
             as_of_date=as_of_date,
