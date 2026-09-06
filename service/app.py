@@ -147,6 +147,12 @@ def research_pool(req: ResearchPoolRequest):
             strict_pit=req.strict_pit,
             ml_model_path=DEFAULT_CONFIG.get("sector_ml_model_path") or None,
             ml_weight=float(DEFAULT_CONFIG.get("sector_ml_weight", 0.5)),
+            style_ic_history_path=(
+                DEFAULT_CONFIG.get("style_ic_history_path") or None
+            ),
+            adaptive_style_strength=float(
+                DEFAULT_CONFIG.get("adaptive_style_strength", 0.5)
+            ),
         )
         warnings = list(result.representatives.warnings or [])
         component_unavailable = any(
