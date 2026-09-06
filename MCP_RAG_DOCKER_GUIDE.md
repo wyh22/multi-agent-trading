@@ -1,5 +1,7 @@
 # MCP + PIT-aware RAG + Qdrant + Docker 扩展说明（v1.3）
 
+> 当前 RAG 已升级为 Project-wide hierarchical knowledge layer：支持 company / industry / market / macro / regulation 多层 scope、Manifest 批量入库和 corpus coverage。最新 RAG 数据建模与入库方式以 [docs/RAG_EVIDENCE_WORKFLOW.md](docs/RAG_EVIDENCE_WORKFLOW.md) 为准；本文主要保留 MCP/Docker 部署说明。
+
 本扩展不改变原来的 7-Agent 研究拓扑，新增的是**工具协议层、知识检索层和服务部署层**：
 
 ```text
