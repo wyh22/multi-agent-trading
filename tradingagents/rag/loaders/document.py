@@ -19,6 +19,19 @@ def _source_meta(path: Path, source_name: str | None) -> tuple[str, str]:
     return display_name, f"upload://{display_name}"
 
 
+def _date_meta(
+    *,
+    source: str,
+    confidence: float,
+    verified: bool,
+) -> dict:
+    return {
+        "publish_date_source": str(source or "USER").upper(),
+        "publish_date_confidence": max(0.0, min(1.0, float(confidence))),
+        "publish_date_verified": bool(verified),
+    }
+
+
 def _pdf_documents(
     path: Path,
     *,
@@ -27,6 +40,9 @@ def _pdf_documents(
     doc_type: str,
     file_hash: str,
     source_name: str | None,
+    publish_date_source: str,
+    publish_date_confidence: float,
+    publish_date_verified: bool,
 ) -> list[KnowledgeDocument]:
     try:
         import fitz  # PyMuPDF
@@ -56,8 +72,7 @@ def _pdf_documents(
                         "file_name": display_name,
                         "file_hash": file_hash,
                         "page": page_no,
-                    },
-                )
+                        **_date_meta(\n                            source=publish_date_source,\n                            confidence=publish_date_confidence,\n                            verified=publish_date_verified,\n                        ),\n                    },\n                )
             )
     if not documents:
         raise ValueError("PDF 未提取到可检索文本；扫描版 PDF 暂未启用 OCR")
@@ -72,6 +87,9 @@ def _docx_documents(
     doc_type: str,
     file_hash: str,
     source_name: str | None,
+    publish_date_source: str,
+    publish_date_confidence: float,
+    publish_date_verified: bool,
 ) -> list[KnowledgeDocument]:
     try:
         from docx import Document
@@ -116,8 +134,7 @@ def _docx_documents(
                 "file_name": display_name,
                 "file_hash": file_hash,
                 "heading_hint": heading_path[-1] if heading_path else "",
-            },
-        )
+                **_date_meta(\n                    source=publish_date_source,\n                    confidence=publish_date_confidence,\n                    verified=publish_date_verified,\n                ),\n            },\n        )
     ]
 
 
@@ -129,6 +146,9 @@ def _text_documents(
     doc_type: str,
     file_hash: str,
     source_name: str | None,
+    publish_date_source: str,
+    publish_date_confidence: float,
+    publish_date_verified: bool,
 ) -> list[KnowledgeDocument]:
     text = path.read_text(encoding="utf-8", errors="ignore").strip()
     if not text:
@@ -144,8 +164,7 @@ def _text_documents(
             source="uploaded-text",
             url=source_uri,
             doc_type=doc_type,
-            metadata={"file_name": display_name, "file_hash": file_hash},
-        )
+            metadata={\n                "file_name": display_name,\n                "file_hash": file_hash,\n                **_date_meta(\n                    source=publish_date_source,\n                    confidence=publish_date_confidence,\n                    verified=publish_date_verified,\n                ),\n            },\n        )
     ]
 
 
@@ -156,6 +175,9 @@ def load_documents(
     publish_date: str,
     doc_type: str = "user_document",
     source_name: str | None = None,
+    publish_date_source: str = "USER",
+    publish_date_confidence: float = 0.5,
+    publish_date_verified: bool = False,
 ) -> list[KnowledgeDocument]:
     """Load PDF/DOCX/MD/TXT into normalized PIT-aware knowledge documents."""
 
@@ -170,6 +192,9 @@ def load_documents(
         "doc_type": doc_type,
         "file_hash": file_hash,
         "source_name": source_name,
+        "publish_date_source": publish_date_source,
+        "publish_date_confidence": publish_date_confidence,
+        "publish_date_verified": publish_date_verified,
     }
     if suffix == ".pdf":
         return _pdf_documents(source, **kwargs)
