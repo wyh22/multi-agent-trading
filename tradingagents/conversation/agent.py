@@ -1009,11 +1009,16 @@ class ConversationAgent:
             )
             execution_events.append(dict(execution_meta or {}))
 
-            completion = self.completion_gate.assess(
-                task_contract,
-                observations=observations,
-                used_capabilities=used_capabilities,
-            )
+            if action.action == "respond" and step_index > 0:
+                # respond only reformats/explains evidence already gathered in
+                # this turn. It must not change evidence-completion bookkeeping.
+                pass
+            else:
+                completion = self.completion_gate.assess(
+                    task_contract,
+                    observations=observations,
+                    used_capabilities=used_capabilities,
+                )
             supervisor_trace.append(
                 {
                     "step": step_index + 1,

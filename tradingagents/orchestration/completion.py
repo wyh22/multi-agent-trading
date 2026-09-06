@@ -92,7 +92,7 @@ class TaskContractBuilder:
                 raise ValueError("empty task contract")
             if not result.objective:
                 result.objective = message
-            return result
+            return self._sanitize(contract, result)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Task contract generation failed; using fallback: %s", exc)
             return _fallback_contract(message, ticker)
@@ -148,6 +148,82 @@ class CompletionGate:
             reason="deterministic fallback",
         )
 
+    @staticmethod
+    def _sanitize(
+        contract: TaskContract,
+        result: CompletionAssessment,
+    ) -> CompletionAssessment:
+        """Constrain completion bookkeeping to the immutable Task Contract."""
+
+        checklist = contract.checklist()
+        if not checklist:
+            return result
+
+        def map_items(values: list[str]) -> tuple[list[str], list[str]]:
+            mapped: list[str] = []
+            unmatched: list[str] = []
+            for raw in values:
+                text = str(raw or "").strip()
+                lower = text.lower()
+                match = None
+                for item in checklist:
+                    if lower == item.lower():
+                        match = item
+                        break
+                    if "::" in item:
+                        entity, dimension = item.split("::", 1)
+                        dim_tokens = {
+                            dimension.lower(),
+                            dimension.replace("_", " ").lower(),
+                        }
+                        if any(token and token in lower for token in dim_tokens):
+                            if entity.lower() in lower or entity not in text:
+                                match = item
+                                break
+                    elif item.lower() in lower:
+                        match = item
+                        break
+                if match is None:
+                    unmatched.append(text)
+                elif match not in mapped:
+                    mapped.append(match)
+            return mapped, unmatched
+
+        completed, unmatched_completed = map_items(result.completed_items)
+        missing, unmatched_missing = map_items(result.missing_items)
+        missing = [item for item in missing if item not in completed]
+        for item in checklist:
+            if item not in completed and item not in missing:
+                missing.append(item)
+
+        critical_missing = [
+            requirement
+            for requirement in contract.critical_requirements
+            if not any(
+                requirement.lower() in item.lower()
+                for item in completed
+            )
+        ]
+        evidence_gaps = list(
+            dict.fromkeys(
+                [
+                    *result.evidence_gaps,
+                    *unmatched_missing,
+                    *unmatched_completed,
+                ]
+            )
+        )
+        ratio = len(completed) / max(1, len(checklist))
+        return CompletionAssessment(
+            complete=not missing and not critical_missing,
+            completion_ratio=ratio,
+            completed_items=completed,
+            missing_items=missing,
+            critical_missing=critical_missing,
+            evidence_gaps=evidence_gaps,
+            reason=result.reason,
+        )
+
     def assess(
         self,
         contract: TaskContract,
@@ -173,8 +249,8 @@ Task Contract:
 规则：
 1. complete=true 只有在所有 critical_requirements 都已覆盖时；
 2. 不要因为模型“提到了一个主题”就视为完成，要有实际结果/证据；
-3. missing_items 明确列出尚未覆盖的 entity × dimension；
-4. evidence_gaps 列出“有结论但缺证据”的项目；
+3. completed_items / missing_items 只能填写 Task Contract checklist 中的原始条目，不得新增维度；
+4. 更具体的“缺什么原文/来源/核验”只能写入 evidence_gaps；
 5. completion_ratio 按 contract 覆盖度估算，不能因篇幅长就提高；
 6. 如果数据源明确不可用，应保留为 missing/evidence gap，而不是假装完成。
 """.strip()
