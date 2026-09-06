@@ -17,6 +17,7 @@ from tradingagents.discovery.pipeline import run_discovery, run_research_pool
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from tradingagents.rag.ingestion import ingest_path
 from tradingagents.rag.retriever import HybridKnowledgeRetriever
+from tradingagents.rag.scope import normalize_scope
 from tradingagents.rag.store import QdrantKnowledgeStore
 
 app = FastAPI(title="TradingAgents A-share Agent API", version="1.7")
@@ -53,11 +54,17 @@ class ResearchPoolRequest(BaseModel):
 
 
 class KnowledgeSearchRequest(BaseModel):
-    ticker: str = Field(examples=["601016.SH"])
+    ticker: str = Field(examples=["600519.SH"])
     query: str = Field(min_length=1)
     as_of_date: str = Field(default_factory=lambda: date.today().isoformat())
     top_k: int = Field(default=6, ge=1, le=10)
     doc_type: str | None = None
+    industry: str | None = Field(
+        default=None,
+        description=(
+            "可选行业名称/代码；为空时会尝试从已入库公司文档自动解析。"
+        ),
+    )
 
 
 class RollbackRequest(BaseModel):
@@ -313,17 +320,26 @@ def knowledge_status():
 
 
 @app.get("/knowledge/documents")
-def knowledge_documents(ticker: str | None = None, limit: int = 100):
+def knowledge_documents(
+    ticker: str | None = None,
+    scope_type: str | None = None,
+    scope_key: str | None = None,
+    limit: int = 100,
+):
     if not DEFAULT_CONFIG.get("rag_enabled", False):
         raise HTTPException(status_code=409, detail="RAG is disabled")
     try:
         canonical = normalize_a_share_symbol(ticker) if ticker else None
         rows = _knowledge_store().list_documents(
             ticker=canonical,
+            scope_type=scope_type,
+            scope_key=scope_key,
             limit=max(1, min(int(limit), 500)),
         )
         return {
             "ticker": canonical,
+            "scope_type": scope_type,
+            "scope_key": scope_key,
             "documents": rows,
             "count": len(rows),
         }
@@ -353,6 +369,7 @@ def knowledge_search(req: KnowledgeSearchRequest):
             max_chunks_per_doc=int(
                 DEFAULT_CONFIG.get("rag_max_chunks_per_doc", 2)
             ),
+            industry=req.industry,
         )
         results = []
         for hit in hits:
@@ -364,6 +381,10 @@ def knowledge_search(req: KnowledgeSearchRequest):
                         f"RAG:{chunk.doc_id}#chunk-{chunk.chunk_index}"
                     ),
                     "ticker": chunk.ticker,
+                    "scope_type": chunk.scope_type,
+                    "scope_key": chunk.scope_key,
+                    "scope_id": f"{chunk.scope_type}:{chunk.scope_key}",
+                    "industry": chunk.industry,
                     "title": chunk.title,
                     "publish_date": chunk.publish_date,
                     "doc_type": chunk.doc_type,
@@ -398,8 +419,11 @@ def knowledge_search(req: KnowledgeSearchRequest):
 @app.post("/knowledge/upload")
 async def upload_knowledge(
     file: UploadFile = File(...),
-    ticker: str = Form(...),
     publish_date: str = Form(...),
+    ticker: str | None = Form(None),
+    scope_type: str = Form("company"),
+    scope_key: str | None = Form(None),
+    industry: str | None = Form(None),
     doc_type: str = Form("user_document"),
 ):
     suffix = Path(file.filename or "").suffix.lower()
@@ -426,11 +450,20 @@ async def upload_knowledge(
         ) as handle:
             handle.write(payload)
             temp_path = Path(handle.name)
+        scope = normalize_scope(
+            scope_type=scope_type,
+            scope_key=scope_key,
+            ticker=ticker,
+            industry=industry,
+        )
         result = ingest_path(
             temp_path,
-            ticker=ticker,
+            ticker=scope.ticker if scope.scope_type == "company" else None,
             publish_date=publish_date,
             config=DEFAULT_CONFIG,
+            scope_type=scope.scope_type,
+            scope_key=scope.scope_key,
+            industry=scope.industry,
             doc_type=doc_type,
             source_name=file.filename or temp_path.name,
             publish_date_source="USER",
