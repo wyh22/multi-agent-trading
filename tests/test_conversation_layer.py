@@ -22,6 +22,9 @@ def test_conversation_store_persists_thread_history_and_context(tmp_path):
     assert thread["current_ticker"]=="600519.SH"
     assert thread["research_context"]=="审计后的研究上下文"
     assert [item["role"] for item in store.history(tid)]==["user","assistant"]
+    recent=store.list_threads(limit=5)
+    assert recent[0]["thread_id"]==tid
+    assert recent[0]["message_count"]==2
     assert store.reset(tid) is True
     assert store.get_thread(tid) is None
 
@@ -29,6 +32,7 @@ def test_fastapi_exposes_multiturn_chat_ui_and_history_routes():
     source=(Path(__file__).resolve().parents[1]/"service"/"app.py").read_text(encoding="utf-8")
     assert '@app.post("/chat")' in source
     assert '@app.get("/chat/{thread_id}")' in source
+    assert '@app.get("/chats/recent")' in source
     assert '@app.delete("/chat/{thread_id}")' in source
     assert 'app.mount("/ui"' in source
 
@@ -46,3 +50,18 @@ def test_fastapi_exposes_research_pool_and_candidate_context_handoff():
     source=(Path(__file__).resolve().parents[1]/"service"/"app.py").read_text(encoding="utf-8")
     assert '@app.post("/research-pool")' in source
     assert "candidate_context" in source
+
+
+def test_web_ui_restores_persisted_conversation_after_reload():
+    source=(
+        Path(__file__).resolve().parents[1]
+        / "service"
+        / "static"
+        / "index.html"
+    ).read_text(encoding="utf-8")
+    assert "restoreConversation()" in source
+    assert "loadThread(threadId)" in source
+    assert "/chats/recent?limit=1" in source
+    assert "tradingagents_thread_id" in source
+    assert "新建会话" in source
+    assert "旧会话仍保存在本地数据库中" in source
