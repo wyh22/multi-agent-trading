@@ -4,6 +4,7 @@ from tradingagents.agents.schemas import AuditIssue, AuditResult
 from tradingagents.agents.utils.tool_registry import build_local_tool_groups
 from tradingagents.capabilities.registry import CapabilityRegistry, CapabilitySpec
 from tradingagents.conversation.store import ConversationStore
+from tradingagents.orchestration.schemas import SupervisorAction
 from tradingagents.orchestration.supervisor import ConversationSupervisor
 from tradingagents.rag.loaders import load_documents
 from tradingagents.skills.registry import BUILTIN_SKILLS
@@ -194,3 +195,111 @@ def test_conversation_supervisor_loop_is_bounded_and_observation_driven():
     assert '"supervisor:repeat_guard"' in source
     assert '"supervisor:step_limit"' in source
     assert '"supervisor_trace": supervisor_trace' in source
+
+
+def _specialist_registry():
+    registry = CapabilityRegistry()
+    for name in ("market", "news", "fundamentals"):
+        registry.register(
+            CapabilitySpec(
+                name=name,
+                kind="agent",
+                description=f"{name} specialist",
+                requires_ticker=True,
+            )
+        )
+    registry.register(
+        CapabilitySpec(
+            name="get_verified_market_snapshot",
+            kind="tool",
+            description="verified market snapshot",
+            requires_ticker=True,
+        )
+    )
+    registry.register(
+        CapabilitySpec(
+            name="sector_discovery",
+            kind="skill",
+            description="sector discovery",
+        )
+    )
+    registry.register(
+        CapabilitySpec(
+            name="deep_stock_research",
+            kind="skill",
+            description="deep research",
+            requires_ticker=True,
+        )
+    )
+    return registry
+
+
+def test_supervisor_normalizes_catalog_prefixed_targets():
+    tool_action = ConversationSupervisor._normalize_target(
+        SupervisorAction(
+            action="call_tool",
+            target="tool:get_verified_market_snapshot",
+        )
+    )
+    assert tool_action.target == "get_verified_market_snapshot"
+
+    agent_action = ConversationSupervisor._normalize_target(
+        SupervisorAction(
+            action="delegate_agent",
+            target="agent:market",
+        )
+    )
+    assert agent_action.target == "market"
+
+    skill_action = ConversationSupervisor._normalize_target(
+        SupervisorAction(
+            action="run_skill",
+            target="skill:sector_discovery",
+        )
+    )
+    assert skill_action.target == "sector_discovery"
+
+
+def test_supervisor_fallback_keeps_single_domain_market_query_lightweight():
+    supervisor = ConversationSupervisor(
+        NoStructuredLLM(),
+        _specialist_registry(),
+    )
+    action = supervisor.decide(
+        "分析当前的技术趋势、动量和主要技术风险。",
+        current_ticker="601016.SH",
+        as_of_date="2026-09-06",
+        history=[],
+    )
+    assert action.action == "delegate_agent"
+    assert action.target == "market"
+
+
+def test_supervisor_fallback_keeps_single_domain_fundamentals_query_lightweight():
+    supervisor = ConversationSupervisor(
+        NoStructuredLLM(),
+        _specialist_registry(),
+    )
+    action = supervisor.decide(
+        "分析当前现金流质量和盈利能力。",
+        current_ticker="601016.SH",
+        as_of_date="2026-09-06",
+        history=[],
+    )
+    assert action.action == "delegate_agent"
+    assert action.target == "fundamentals"
+
+
+def test_supervisor_fallback_escalates_cross_domain_query_to_deep_research():
+    supervisor = ConversationSupervisor(
+        NoStructuredLLM(),
+        _specialist_registry(),
+    )
+    action = supervisor.decide(
+        "结合技术趋势、现金流和近期政策风险做完整分析。",
+        current_ticker="601016.SH",
+        as_of_date="2026-09-06",
+        history=[],
+    )
+    assert action.action == "run_deep_research"
+    assert action.target == "deep_stock_research"
