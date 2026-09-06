@@ -77,8 +77,8 @@ def _pdf_documents(
                     metadata={
                         "file_name": display_name,
                         "file_hash": file_hash,
-                "source_authority": str(source_authority or ""),
-                "source_url": str(source_url or ""),
+                        "source_authority": str(source_authority or ""),
+                        "source_url": str(source_url or ""),
                         "page": page_no,
                         **_date_meta(
                             source=publish_date_source,
