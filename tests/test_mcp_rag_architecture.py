@@ -40,3 +40,18 @@ def test_fundamentals_analyst_prompt_knows_shared_rag_tools():
     assert "active_tool_names" in source
     assert '"search_company_knowledge" in active_tool_names' in source
     assert "annual reports" in source
+
+
+def test_service_exposes_rag_observability_and_direct_search():
+    source = _read("service/app.py")
+    assert '@app.get("/knowledge/status")' in source
+    assert '@app.get("/knowledge/documents")' in source
+    assert '@app.post("/knowledge/search")' in source
+
+
+def test_rag_ingest_cli_exposes_explicit_provenance_controls():
+    source = _read("scripts/rag_ingest.py")
+    assert "--publish-date-source" in source
+    assert "--publish-date-verified" in source
+    assert "--source-authority" in source
+    assert "--source-url" in source
