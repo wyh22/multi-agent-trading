@@ -11,7 +11,7 @@ from tradingagents.evaluation.architecture import (
     pit_parameter_score,
 )
 from tradingagents.evaluation.systems import SYSTEM_BUILDERS
-from tradingagents.evaluation.telemetry import estimate_cost
+from tradingagents.evaluation.telemetry import EvaluationTelemetryHandler, estimate_cost
 from tradingagents.orchestration.schemas import CompletionAssessment
 
 
@@ -178,3 +178,30 @@ def test_benchmark_capture_and_graph_callbacks_are_opt_in_and_traceable():
         ROOT / "tradingagents" / "graph" / "trading_graph.py"
     ).read_text(encoding="utf-8")
     assert "get_graph_args(callbacks=self.callbacks or None)" in graph
+
+
+def test_telemetry_deduplicates_same_callback_run_id():
+    handler = EvaluationTelemetryHandler()
+    handler.on_chat_model_start(
+        {"name": "model-a"},
+        [[]],
+        run_id="same-llm-run",
+    )
+    handler.on_chat_model_start(
+        {"name": "model-a"},
+        [[]],
+        run_id="same-llm-run",
+    )
+    handler.on_tool_start(
+        {"name": "tool-a"},
+        "{}",
+        run_id="same-tool-run",
+    )
+    handler.on_tool_start(
+        {"name": "tool-a"},
+        "{}",
+        run_id="same-tool-run",
+    )
+    snapshot = handler.snapshot()
+    assert snapshot["llm_calls"] == 1
+    assert snapshot["tool_calls"] == 1
