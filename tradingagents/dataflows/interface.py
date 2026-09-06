@@ -166,9 +166,11 @@ def route_to_vendor(method: str, *args, **kwargs):
 
     last_no_data: NoMarketDataError | None = None
     first_error: Exception | None = None
+    skipped_by_circuit: list[str] = []
 
     for vendor in vendor_chain:
         if _vendor_circuit_open(method, vendor):
+            skipped_by_circuit.append(vendor)
             logger.debug(
                 "Vendor %r circuit open for %s; skipping during cooldown.",
                 vendor,
@@ -212,5 +214,20 @@ def route_to_vendor(method: str, *args, **kwargs):
                 f"({first_error}). Proceed without it; do not fabricate values."
             )
         raise first_error
+
+    if skipped_by_circuit:
+        if category == "macro_data" or method in {
+            "get_news",
+            "get_global_news",
+            "get_insider_transactions",
+        }:
+            return (
+                f"DATA_UNAVAILABLE: optional {method} vendors are temporarily "
+                f"in circuit-breaker cooldown ({', '.join(skipped_by_circuit)}). "
+                "Proceed without it; do not fabricate values."
+            )
+        raise RuntimeError(
+            f"All configured vendors for '{method}' are in circuit-breaker cooldown"
+        )
 
     raise RuntimeError(f"No available vendor for '{method}'")
