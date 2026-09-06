@@ -25,7 +25,7 @@
 - 增加 **Decision Auditor + targeted repair**：对最终结论做事实、数字、PIT 与证据一致性检查，REVISE 时可定向让 Market / News / Fundamentals 重新取证，再由 PM 重综合；
 - 通过 **Shared Qdrant Hybrid RAG** 提供 PIT-aware 文档证据；用户上传日期记录 provenance，历史研究对显式未验证日期 fail closed；MCP 仅作为可选远程 Tool Adapter，本地 Python Tool 仍是默认路径；
 - Conversation SQLite 增加 **immutable Research Version + rollback**；LangGraph Checkpoint 继续专门负责 crash resume；
-- 提供 **Routing Eval + Claim Grounding Eval + Agent Evaluation + Outcome Backtest**，并预留 Single-Agent / Fixed Multi-Agent / Dynamic Supervisor 同条件 baseline 对照；
+- 提供 **Routing Eval + Claim Grounding Eval + Agent Evaluation + Outcome Backtest**，并可直接运行 Single-Agent / Fixed Deep Research / Dynamic Supervisor 同条件 baseline 对照；
 - 提供 **FastAPI + 浏览器 Chat UI + Docker Compose**，支持本地服务化运行。
 
 ## 核心能力
@@ -44,7 +44,7 @@
 | Shared Hybrid RAG | Dense + BM25 + RRF + Reranker + Temporal Provenance | 未验证发布日期文档不会进入历史 PIT 检索 |
 | 多轮会话 | Supervisor + Task Contract + thread_id + SQLite | 返回 COMPLETE / PARTIAL / REVIEW_REQUIRED / DATA_UNAVAILABLE / SYSTEM_ERROR，并支持 HITL 继续补查 |
 | Research Rollback | Immutable SQLite research versions | 恢复上一版/指定版本；与 crash checkpoint 分离 |
-| Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |
+| Architecture Benchmark | Single Agent / Fixed Deep Research / Dynamic Supervisor + Routing / Grounding / Completion / PIT / Token / Latency | 用同条件实验检验复杂编排是否真的值得 |\n| Agent Evaluation | Tool / PIT / Trajectory / Report Quality | 将 Agent 工程质量变成可回归指标 |
 | Outcome Backtest | Rating vs. realized / benchmark return | 将“研究质量评估”和“市场结果评估”分离 |
 | 服务化 | FastAPI / Chat UI / Docker Compose | 提升可复现性和演示效率 |
 | 可观测性 | LangSmith Trace | 观察 LLM / Tool / Agent 调用链 |
@@ -455,6 +455,46 @@ publish_date <= as_of_date
 - 行业发现结果是 Sector Research Shortlist，不是个股买入清单或收益承诺。
 - 本项目不执行自动下单，不提供真实资金交易接口。
 
+## V1.7 架构 Benchmark
+
+V1.7 不再增加 Agent，而是把“为什么不用一个 LLM + 全工具”变成可运行实验。
+
+```bash
+python scripts/run_agent_benchmark.py \
+  --systems single-agent-all-tools,fixed-deep-research,dynamic-supervisor \
+  --dataset evaluation/datasets/architecture_benchmark_v1.jsonl \
+  --output results/benchmark_v1
+```
+
+自动生成：
+
+- `raw_runs.jsonl`：每个系统/Case 的原始回答、证据、Tool Trace 与 telemetry；
+- `per_case.csv`：Routing、Grounding、Completion、PIT、调用量与延迟；
+- `summary.csv`：三种架构的聚合对照；
+- `BENCHMARK_REPORT.md`：可直接用于实验复盘的 Markdown 报告。
+
+成本不硬编码供应商价格；可通过 `--pricing-json` 传入当前实际价格。
+
+### PIT-safe Style IC
+
+Adaptive Style 不再只按 signal date 做历史过滤。IC 历史必须记录
+`available_date`——即 forward-return 标签真正成熟的日期；历史研究只使用
+`available_date < as_of_date` 的记录。
+
+```bash
+python scripts/build_sector_style_panel.py \
+  --start 2023-01-01 --end 2026-08-31 --freq B \
+  --output evaluation/data/sector_style_panel_daily.csv
+
+python scripts/build_style_ic_history.py \
+  --panel evaluation/data/sector_style_panel_daily.csv \
+  --forward-periods 20 \
+  --output evaluation/data/style_ic_history.csv
+```
+
+在没有真实 benchmark / walk-forward 结果前，README 与面试中都不应声称
+Supervisor 或 Adaptive Style 已经带来确定的准确率、收益率或成本提升。
+
 ## 文档
 
 - [SECTOR_DISCOVERY.md](docs/SECTOR_DISCOVERY.md)：Sector-first Style Rank、Regime 权重、可选 LightGBM 与 legacy 对照
@@ -463,7 +503,7 @@ publish_date <= as_of_date
 - [ENGINEERING_NOTES.md](docs/ENGINEERING_NOTES.md)：设计取舍、代码所有权边界、面向工程评审的实现说明
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
 - [MCP_RAG_DOCKER_GUIDE.md](MCP_RAG_DOCKER_GUIDE.md)：MCP、Qdrant Hybrid RAG、Docker
-- [docs/V1_6_HARDENING.md](docs/V1_6_HARDENING.md)：Task Contract、Completion、显式降级、Temporal Provenance、Evaluation 与 remaining boundaries\n- [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback
+- [docs/V1_7_BENCHMARK.md](docs/V1_7_BENCHMARK.md)：三架构 Benchmark、Telemetry、Grounding/Completion/PIT 指标与 PIT-safe Style IC\n- [docs/V1_6_HARDENING.md](docs/V1_6_HARDENING.md)：Task Contract、Completion、显式降级、Temporal Provenance、Evaluation 与 remaining boundaries\n- [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback
 - [V1.4_VALIDATION.md](V1.4_VALIDATION.md)：当前离线验证边界
 
 ## 二次开发与许可证
