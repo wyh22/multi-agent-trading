@@ -17,6 +17,10 @@
     .COMPLETE{background:#dafbe1}.PARTIAL{background:#fff8c5}.REVIEW_REQUIRED{background:#fff1e5}
     .DATA_UNAVAILABLE{background:#ddf4ff}.SYSTEM_ERROR{background:#ffebe9}
     #actions{display:flex;gap:8px;margin-top:8px}#actions button,#newChat{background:#57606a}
+    #trace{margin-top:8px}.trace-box{background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:8px 10px}
+    .trace-box summary{cursor:pointer;font-weight:600;color:#24292f}.trace-table{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px}
+    .trace-table th,.trace-table td{border-top:1px solid #d8dee4;padding:6px;text-align:left;vertical-align:top}
+    .trace-path{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#57606a;margin-top:6px}
   </style>
 </head>
 <body>
@@ -33,6 +37,7 @@
     <button id="send">发送</button>
   </div>
   <div class="meta" id="status"></div>
+  <div id="trace"></div>
   <div id="actions"></div>
 <script>
 const STORAGE={
@@ -49,6 +54,7 @@ const tickerInput=document.getElementById('ticker');
 const dateInput=document.getElementById('date');
 const messageInput=document.getElementById('message');
 const statusBox=document.getElementById('status');
+const traceBox=document.getElementById('trace');
 const actionsBox=document.getElementById('actions');
 
 dateInput.value=localStorage.getItem(STORAGE.date)||new Date().toISOString().slice(0,10);
@@ -66,6 +72,7 @@ function add(role,text,scroll=true){
 function clearRenderedConversation(){
   chatBox.innerHTML='';
   actionsBox.innerHTML='';
+  traceBox.innerHTML='';
   statusBox.textContent='';
 }
 
@@ -79,6 +86,56 @@ function renderStatus(data){
     'ticker='+(data.ticker||'未指定')
   ].filter(Boolean);
   statusBox.innerHTML=parts.join(' · ')+(missing?' · missing='+missing:'');
+}
+
+function renderSupervisorTrace(data){
+  traceBox.innerHTML='';
+  const trace=Array.isArray(data.supervisor_trace)?data.supervisor_trace:[];
+  if(!trace.length)return;
+
+  const path=trace.map(item=>{
+    const target=item.target?':'+item.target:'';
+    return (item.action||'unknown')+target;
+  }).join(' → ');
+
+  const details=document.createElement('details');
+  details.className='trace-box';
+  details.open=true;
+
+  const summary=document.createElement('summary');
+  summary.textContent=`Supervisor Trace · ${trace.length} step(s)`;
+  details.appendChild(summary);
+
+  const pathDiv=document.createElement('div');
+  pathDiv.className='trace-path';
+  pathDiv.textContent='path='+path;
+  details.appendChild(pathDiv);
+
+  const table=document.createElement('table');
+  table.className='trace-table';
+  table.innerHTML='<thead><tr><th>Step</th><th>Action</th><th>Target</th><th>Route</th><th>Completion</th><th>Missing</th></tr></thead>';
+  const tbody=document.createElement('tbody');
+
+  for(const item of trace){
+    const tr=document.createElement('tr');
+    const values=[
+      item.step??'',
+      item.action||'',
+      item.target||'',
+      item.route||'',
+      item.completion_ratio==null?'':Math.round(Number(item.completion_ratio)*100)+'%',
+      (item.missing_items||[]).slice(0,4).join('、')
+    ];
+    for(const value of values){
+      const td=document.createElement('td');
+      td.textContent=String(value);
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  details.appendChild(table);
+  traceBox.appendChild(details);
 }
 
 function renderActions(data){
@@ -127,7 +184,8 @@ function responseStateFromThread(thread){
     route:thread.last_intent||'',
     ticker:thread.current_ticker||null,
     missing_items:completion.missing_items||[],
-    active_research_version_id:metadata.active_research_version_id||null
+    active_research_version_id:metadata.active_research_version_id||null,
+    supervisor_trace:metadata.supervisor_trace||[]
   };
 }
 
@@ -162,6 +220,7 @@ async function loadThread(id){
     const state=responseStateFromThread(thread);
     if(state.status){
       renderStatus(state);
+      renderSupervisorTrace(state);
       renderActions(state);
     }else{
       statusBox.textContent=`已恢复会话 thread=${threadId}`;
@@ -251,6 +310,7 @@ async function send(){
     }
     add('assistant',data.answer);
     renderStatus(data);
+    renderSupervisorTrace(data);
     renderActions(data);
   }catch(e){
     add('assistant','请求失败：'+e.message);

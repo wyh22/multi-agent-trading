@@ -1259,6 +1259,7 @@ class ConversationAgent:
             "user_action_required": response.user_action_required,
             "task_contract": task_contract.model_dump(),
             "completion_ratio": completion.completion_ratio,
+            "supervisor_trace": supervisor_trace,
             "active_research_version_id": (
                 updated.get("metadata", {}).get("active_research_version_id")
                 if isinstance(updated.get("metadata"), dict)
@@ -1268,7 +1269,6 @@ class ConversationAgent:
                 {
                     "evaluation_evidence": evaluation_evidence,
                     "evaluation_tool_trace": evaluation_tool_trace,
-                    "supervisor_trace": supervisor_trace,
                 }
                 if capture_evidence
                 else {}

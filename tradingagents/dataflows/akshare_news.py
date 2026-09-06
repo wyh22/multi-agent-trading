@@ -104,3 +104,94 @@ def get_akshare_insider_transactions(ticker: str, curr_date: str | None = None) 
         as_of_date=cutoff.strftime("%Y-%m-%d"),
         data_date=work["_date"].max().strftime("%Y-%m-%d"),
     )
+
+def get_akshare_company_news(
+    ticker: str,
+    start_date: str,
+    end_date: str,
+    curr_date: str | None = None,
+) -> str:
+    """Return PIT-filtered Eastmoney company news as a secondary source.
+
+    stock_news_em only exposes the latest provider company-news window,
+    so historical research can legitimately return NO_DATA after PIT filtering.
+    This source supplements CNInfo statutory announcements; it must not be
+    represented as the authoritative filing text.
+    """
+
+    ak = _check_akshare()
+    canonical = normalize_a_share_symbol(ticker)
+    code = canonical.split(".", 1)[0]
+
+    start = pd.Timestamp(start_date).normalize()
+    requested_end = pd.Timestamp(end_date).normalize()
+    cutoff = min(
+        requested_end,
+        pd.Timestamp(curr_date or end_date).normalize(),
+    )
+
+    df = ak.stock_news_em(symbol=code)
+    if df is None or df.empty:
+        raise NoMarketDataError(
+            ticker,
+            canonical,
+            "东方财富个股新闻接口返回空数据",
+        )
+
+    if "发布时间" not in df.columns:
+        raise NoMarketDataError(
+            ticker,
+            canonical,
+            "东方财富个股新闻缺少发布时间，无法进行 PIT 过滤",
+        )
+
+    stamps = pd.to_datetime(df["发布时间"], errors="coerce")
+    mask = (
+        stamps.notna()
+        & (stamps.dt.normalize() >= start)
+        & (stamps.dt.normalize() <= cutoff)
+    )
+    work = df.loc[mask].copy()
+    work["_published_at"] = stamps.loc[mask]
+    work = work.sort_values("_published_at", ascending=False).head(50)
+
+    if work.empty:
+        raise NoMarketDataError(
+            ticker,
+            canonical,
+            (
+                f"东方财富最近新闻窗口中没有 {start.date()} 至 "
+                f"{cutoff.date()} 的 PIT-safe 公司新闻"
+            ),
+        )
+
+    lines = [
+        f"## {canonical} 东方财富个股新闻（备用来源）",
+        "",
+        "> 来源说明：该来源用于补充公司新闻及公告相关报道，"
+        "不替代交易所/巨潮资讯法定公告原文。",
+    ]
+    for _, row in work.iterrows():
+        ts = pd.Timestamp(row["_published_at"]).strftime("%Y-%m-%d %H:%M:%S")
+        title = str(row.get("新闻标题", "") or "").strip()
+        content = str(row.get("新闻内容", "") or "").strip()
+        source = str(row.get("文章来源", "") or "").strip()
+        link = str(row.get("新闻链接", "") or "").strip()
+        if len(content) > 600:
+            content = content[:600] + "..."
+        suffix = f"（{source}）" if source else ""
+        line = f"- [{ts}] {title}{suffix}"
+        if content:
+            line += f" — {content}"
+        if link:
+            line += f" {link}"
+        lines.append(line)
+
+    data_date = pd.Timestamp(work["_published_at"].max()).strftime("%Y-%m-%d")
+    return enrich_with_metadata(
+        "\n".join(lines),
+        vendor="eastmoney-stock-news",
+        as_of_date=cutoff.strftime("%Y-%m-%d"),
+        data_date=data_date,
+        quality_flag="secondary_company_news",
+    )
