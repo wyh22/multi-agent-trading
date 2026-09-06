@@ -545,7 +545,7 @@ class TradingAgentsGraph:
             instrument_context=instrument_context,
             candidate_context=candidate_context,
         )
-        args = self.propagator.get_graph_args()
+        args = self.propagator.get_graph_args(callbacks=self.callbacks or None)
 
         # Inject the checkpoint thread_id (from checkpoint_scope) so the same
         # ticker+date+graph-shape resumes; a different one starts fresh (#1089).
