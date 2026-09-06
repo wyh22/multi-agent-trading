@@ -382,12 +382,12 @@ def test_continuation_request_preserves_previous_contract_semantics():
                 "601016.SH::业务与经营分析",
                 "601016.SH::风险维度-政策风险",
             ],
-            "evidence_gaps": ["弃风限电数据缺失"],
+            "evidence_gaps": ["行业竞争格局证据缺失"],
         },
     )
     assert "业务与经营分析" in objective
     assert "政策风险" in objective
-    assert "弃风限电" in objective
+    assert "行业竞争格局" in objective
     assert "不要重跑完整研究" in objective
 
 
@@ -429,7 +429,7 @@ def test_repair_fallback_uses_complementary_specialists_without_full_rerun():
     )
     supervisor = ConversationSupervisor(NoStructuredLLM(), registry)
     repair_query = (
-        "继续补查：主营业务、装机容量、发电量、政策风险、弃风限电、补贴"
+        "继续补查：主营业务、产能订单、行业竞争、政策监管、估值和主要风险"
     )
     first = supervisor.decide(
         repair_query,
