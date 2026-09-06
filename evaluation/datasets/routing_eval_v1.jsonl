@@ -1,0 +1,8 @@
+{"case_id":"route_price","user_query":"贵州茅台昨天收盘价是多少？","ticker":"600519.SH","expected_actions":["call_tool"],"expected_targets":["get_stock_data","get_verified_market_snapshot"],"forbidden_actions":["run_deep_research"]}
+{"case_id":"route_fundamental","user_query":"分析贵州茅台最近一期现金流质量","ticker":"600519.SH","expected_actions":["delegate_agent"],"expected_targets":["fundamentals"],"forbidden_actions":["run_deep_research"]}
+{"case_id":"route_technical","user_query":"分析宁德时代技术趋势和关键指标","ticker":"300750.SZ","expected_actions":["delegate_agent"],"expected_targets":["market"],"forbidden_actions":["run_deep_research"]}
+{"case_id":"route_document","user_query":"年报中有没有提渠道库存风险？","ticker":"600519.SH","expected_actions":["run_skill","call_tool"],"expected_targets":["document_evidence_analysis","search_company_knowledge"],"forbidden_actions":["run_deep_research"]}
+{"case_id":"route_deep","user_query":"从市场、基本面、公告与风险角度完整分析贵州茅台当前投资价值","ticker":"600519.SH","expected_actions":["run_deep_research"],"expected_targets":["deep_stock_research"]}
+{"case_id":"route_discovery","user_query":"给我当前A股值得优先研究的行业","expected_actions":["run_skill"],"expected_targets":["sector_discovery"]}
+{"case_id":"route_followup","user_query":"为什么上一版给出WATCH？","ticker":"600519.SH","expected_actions":["respond"],"expected_targets":[],"forbidden_actions":["run_deep_research"]}
+{"case_id":"route_compare","user_query":"比较宁德时代和比亚迪的估值与现金流","expected_actions":["run_skill"],"expected_targets":["company_comparison"],"forbidden_actions":["run_deep_research"]}

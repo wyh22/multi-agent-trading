@@ -1,0 +1,6 @@
+name: sector_discovery
+description: 确定性行业发现与代表性研究池构建，不让 LLM 直接计算横截面排名。
+requires_ticker: false
+requires_audit: false
+allowed_agents: []
+completion: 返回 PIT-safe 行业研究优先级或代表性研究池。

@@ -1,0 +1,6 @@
+name: company_comparison
+description: 对多个公司执行可比维度研究并综合差异，复杂事实仍由专业 Agent 获取。
+requires_ticker: false
+requires_audit: false
+allowed_agents: [market, news, fundamentals]
+completion: 至少两个标的，比较结论必须来自各标的独立证据。

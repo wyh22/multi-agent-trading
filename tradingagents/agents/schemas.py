@@ -63,6 +63,31 @@ class PortfolioDecision(BaseModel):
     )
 
 
+class AuditIssue(BaseModel):
+    """One actionable audit defect and the capability responsible for repairing it."""
+
+    issue_type: Literal[
+        "missing_evidence",
+        "unsupported_claim",
+        "numeric_conflict",
+        "pit_violation",
+        "reasoning_conflict",
+        "source_conflict",
+    ] = Field(description="审计问题类型。")
+    repair_target: Literal[
+        "market",
+        "news",
+        "fundamentals",
+        "portfolio_manager",
+        "rag",
+    ] = Field(description="最适合修复该问题的责任能力。")
+    affected_claims: list[str] = Field(
+        default_factory=list,
+        description="受影响的关键陈述，最多五项。",
+    )
+    instruction: str = Field(description="明确、可执行的重新取证或修订要求。")
+
+
 class AuditResult(BaseModel):
     """决策审计智能体的结构化检查结果。"""
 
@@ -87,6 +112,10 @@ class AuditResult(BaseModel):
     unsupported_claims: list[str] = Field(
         default_factory=list,
         description="无法从现有证据直接支持的陈述，最多列出五项。",
+    )
+    issues: list[AuditIssue] = Field(
+        default_factory=list,
+        description="需要修复的结构化问题；PASS 时应为空。",
     )
     revision_instructions: list[str] = Field(
         default_factory=list,
@@ -141,6 +170,12 @@ def render_audit_result(result: AuditResult) -> str:
     if result.unsupported_claims:
         parts.extend(["", "**无充分证据的陈述**:"])
         parts.extend(f"- {item}" for item in result.unsupported_claims[:5])
+    if result.issues:
+        parts.extend(["", "**结构化修复路由**:"])
+        for issue in result.issues[:5]:
+            parts.append(
+                f"- [{issue.issue_type}] -> {issue.repair_target}: {issue.instruction}"
+            )
     if result.revision_instructions:
         parts.extend(["", "**修订要求**:"])
         parts.extend(f"- {item}" for item in result.revision_instructions[:5])

@@ -1,19 +1,24 @@
-"""用于限制多智能体上下文体量的 Claim-aware 确定性压缩工具。
+"""Claim-aware context compression with separate evidence/hypothesis channels.
 
-核心原则：
-- 原始报告仍单独保存，便于审计；
-- 下游优先消费显式标注的 FACT / CALCULATION / INFERENCE / CONDITIONAL；
-- 若旧报告没有标签，则使用保守规则做确定性分类；
-- 在字符预算内优先保留事实、计算和类型多样性，而不是机械截取文本头尾。
+Raw reports remain persisted for audit. Downstream agents receive two ledgers:
+- Evidence Ledger: FACT / CALCULATION, optimized for grounding fidelity;
+- Hypothesis Ledger: INFERENCE / CONDITIONAL, preserving reasoning diversity.
+
+This avoids letting factual compression silently erase the hypotheses that make
+deep research useful, while still preventing hypotheses from becoming source truth.
 """
 
 from __future__ import annotations
 
-from tradingagents.agents.utils.evidence_claims import compress_claims
+from tradingagents.agents.utils.evidence_claims import (
+    ClaimType,
+    EvidenceClaim,
+    extract_claims,
+)
 
 
 def compact_text(text: str | None, max_chars: int = 2600) -> str:
-    """保留给最终决策等非证据文本的原始字符预算截断。"""
+    """Character-budget truncation for non-evidence text."""
 
     value = (text or "").strip()
     if len(value) <= max_chars:
@@ -27,24 +32,93 @@ def compact_text(text: str | None, max_chars: int = 2600) -> str:
     )
 
 
+def _select_claims(
+    claims: list[EvidenceClaim],
+    max_chars: int,
+) -> list[EvidenceClaim]:
+    if not claims or max_chars <= 0:
+        return []
+    ranked = sorted(
+        claims,
+        key=lambda item: (-item.priority_score, item.ordinal),
+    )
+    selected: list[EvidenceClaim] = []
+    current = 0
+    for claim in ranked:
+        rendered = claim.render()
+        extra = len(rendered) + (1 if selected else 0)
+        if current + extra <= max_chars:
+            selected.append(claim)
+            current += extra
+    if not selected:
+        best = ranked[0]
+        prefix = f"- [{best.claim_type.value}] "
+        available = max(0, max_chars - len(prefix))
+        if available:
+            selected.append(
+                EvidenceClaim(
+                    text=best.text[:available].rstrip(),
+                    claim_type=best.claim_type,
+                    source_section=best.source_section,
+                    ordinal=best.ordinal,
+                    explicit=best.explicit,
+                )
+            )
+    return sorted(selected, key=lambda item: item.ordinal)
+
+
 def compact_evidence_text(
     text: str | None,
     *,
     source_section: str,
     max_chars: int,
 ) -> str:
-    """将一段研究报告压缩为带 Claim Type 的证据接口。"""
+    """Render separate grounding and hypothesis ledgers under one budget."""
 
-    result = compress_claims(
-        text,
-        source_section=source_section,
-        max_chars=max_chars,
-    )
-    return result.rendered
+    claims = extract_claims(text, source_section)
+    if not claims or max_chars <= 0:
+        return ""
+
+    evidence = [
+        claim
+        for claim in claims
+        if claim.claim_type in {ClaimType.FACT, ClaimType.CALCULATION}
+    ]
+    hypotheses = [
+        claim
+        for claim in claims
+        if claim.claim_type in {ClaimType.INFERENCE, ClaimType.CONDITIONAL}
+    ]
+
+    if evidence and hypotheses:
+        evidence_budget = max(1, int(max_chars * 0.62))
+        hypothesis_budget = max(1, max_chars - evidence_budget - 45)
+    elif evidence:
+        evidence_budget = max_chars
+        hypothesis_budget = 0
+    else:
+        evidence_budget = 0
+        hypothesis_budget = max_chars
+
+    evidence_selected = _select_claims(evidence, evidence_budget)
+    hypothesis_selected = _select_claims(hypotheses, hypothesis_budget)
+
+    parts = []
+    if evidence_selected:
+        parts.append(
+            "### Evidence Ledger\n"
+            + "\n".join(item.render() for item in evidence_selected)
+        )
+    if hypothesis_selected:
+        parts.append(
+            "### Hypothesis Ledger\n"
+            + "\n".join(item.render() for item in hypothesis_selected)
+        )
+    return "\n\n".join(parts)
 
 
 def build_analyst_context(state: dict, per_report_chars: int = 2200) -> str:
-    """构造给 Bull/Bear 使用的三类分析师 Claim-aware 紧凑上下文。"""
+    """Build dual-ledger analyst context for Bull/Bear."""
 
     sections = [
         ("市场与技术面", state.get("market_report", "")),
@@ -66,7 +140,7 @@ def build_analyst_context(state: dict, per_report_chars: int = 2200) -> str:
 
 
 def build_decision_context(state: dict) -> str:
-    """构造 PM/Auditor 使用的 Claim-aware 紧凑证据包。"""
+    """Build PM/Auditor context while preserving evidence and hypotheses separately."""
 
     analyst = build_analyst_context(state, per_report_chars=1500)
     bull = compact_evidence_text(

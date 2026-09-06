@@ -19,6 +19,7 @@ from .representatives import select_representative_stocks
 from .screener import load_sector_components, screen_stocks
 from .sector_ranker import LightGBMSectorRanker, SectorRanker, blend_sector_scores
 from .sectors import analyze_sectors, sector_style_weights
+from .style_adapter import load_adaptive_style_weights
 
 
 def _df_to_markdown(df: pd.DataFrame) -> str:
@@ -50,6 +51,8 @@ def run_discovery(
     ml_model_path: str | None = None,
     ml_weight: float = 0.5,
     ranker: SectorRanker | None = None,
+    style_ic_history_path: str | None = None,
+    adaptive_style_strength: float = 0.5,
     market_analyzer: Callable[..., MarketRegimeResult] = analyze_market_regime,
     sector_analyzer: Callable[..., SectorRankingResult] = analyze_sectors,
 ) -> SectorDiscoveryResult:
@@ -70,11 +73,26 @@ def run_discovery(
         raise ValueError("ranker 与 ml_model_path 只能提供一个")
 
     market = market_analyzer(as_of_date)
-    raw_sector_result = sector_analyzer(
-        as_of_date,
-        market_regime=market.regime,
-        top_n=0,
-    )
+    base_style_weights = sector_style_weights(market.regime)
+    adaptive = None
+    style_override = None
+    if style_ic_history_path:
+        adaptive = load_adaptive_style_weights(
+            as_of_date,
+            base_weights=base_style_weights,
+            history_path=style_ic_history_path,
+            strength=adaptive_style_strength,
+        )
+        if adaptive.used:
+            style_override = adaptive.weights
+
+    sector_kwargs = {
+        "market_regime": market.regime,
+        "top_n": 0,
+    }
+    if style_override is not None:
+        sector_kwargs["style_weights_override"] = style_override
+    raw_sector_result = sector_analyzer(as_of_date, **sector_kwargs)
     ranked = raw_sector_result.sectors.copy()
     if ranked.empty:
         raise RuntimeError("没有可用的申万一级行业排名")
@@ -106,7 +124,25 @@ def run_discovery(
         metadata={
             "top_n": len(shortlist),
             "sector_universe_size": len(ranked),
-            "style_weights": sector_style_weights(market.regime),
+            "style_weights": (
+                adaptive.weights
+                if adaptive and adaptive.used
+                else base_style_weights
+            ),
+            "style_weight_source": (
+                "walk_forward_ic"
+                if adaptive and adaptive.used
+                else "regime_rule"
+            ),
+            "style_weight_observations": (
+                adaptive.observations if adaptive else 0
+            ),
+            "style_weight_signals": (
+                adaptive.signals if adaptive else {}
+            ),
+            "style_weight_warning": (
+                adaptive.warning if adaptive else ""
+            ),
             "rank_source": (
                 "rule+ml"
                 if active_ranker is not None and ml_weight > 0
@@ -135,6 +171,8 @@ def run_research_pool(
     ml_model_path: str | None = None,
     ml_weight: float = 0.5,
     ranker: SectorRanker | None = None,
+    style_ic_history_path: str | None = None,
+    adaptive_style_strength: float = 0.5,
     representative_selector=select_representative_stocks,
 ) -> ResearchPoolResult:
     """Bridge sector discovery to concrete single-stock research entry points.
@@ -157,6 +195,8 @@ def run_research_pool(
         ml_model_path=ml_model_path,
         ml_weight=ml_weight,
         ranker=ranker,
+        style_ic_history_path=style_ic_history_path,
+        adaptive_style_strength=adaptive_style_strength,
     )
     _validate_component_membership_date(as_of_date, strict_pit)
     reps = representative_selector(

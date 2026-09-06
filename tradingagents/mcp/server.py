@@ -129,7 +129,13 @@ def get_macro_indicators(indicator: str, curr_date: str, look_back_days: int | N
 
 
 @mcp.tool()
-def search_company_knowledge(query: str, ticker: str, as_of_date: str, top_k: int = 6) -> str:
+def search_company_knowledge(
+    query: str,
+    ticker: str,
+    as_of_date: str,
+    top_k: int = 6,
+    doc_type: str | None = None,
+) -> str:
     """Hybrid RAG over company documents with publish-date PIT filtering."""
     return _invoke(
         lc_search_company_knowledge,
@@ -137,6 +143,7 @@ def search_company_knowledge(query: str, ticker: str, as_of_date: str, top_k: in
         ticker=ticker,
         as_of_date=as_of_date,
         top_k=top_k,
+        doc_type=doc_type,
     )
 
 

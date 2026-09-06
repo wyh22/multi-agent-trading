@@ -22,6 +22,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_SECTOR_DISCOVERY_TOP_N": "sector_discovery_top_n",
     "TRADINGAGENTS_SECTOR_ML_MODEL_PATH": "sector_ml_model_path",
     "TRADINGAGENTS_SECTOR_ML_WEIGHT": "sector_ml_weight",
+    "TRADINGAGENTS_STYLE_IC_HISTORY_PATH": "style_ic_history_path",
+    "TRADINGAGENTS_ADAPTIVE_STYLE_STRENGTH": "adaptive_style_strength",
     "TRADINGAGENTS_REPRESENTATIVES_PER_SECTOR": "representatives_per_sector",
     "TRADINGAGENTS_REPRESENTATIVE_COMPONENT_LIMIT": "representative_component_limit",
     "TRADINGAGENTS_MCP_ENABLED": "mcp_enabled",
@@ -43,6 +45,8 @@ _ENV_OVERRIDES = {
     "TRADINGAGENTS_CONVERSATION_DB_PATH": "conversation_db_path",
     "TRADINGAGENTS_CONVERSATION_HISTORY_TURNS": "conversation_history_turns",
     "TRADINGAGENTS_CONVERSATION_TOOL_ROUNDS": "conversation_tool_rounds",
+    "TRADINGAGENTS_CONVERSATION_SUPERVISOR_STEPS": "conversation_supervisor_steps",
+    "TRADINGAGENTS_KNOWLEDGE_UPLOAD_MAX_MB": "knowledge_upload_max_mb",
 }
 
 _BOOL_TRUE = ("true", "1", "yes", "on")
@@ -101,6 +105,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     "sector_discovery_top_n": 6,
     "sector_ml_model_path": "",
     "sector_ml_weight": 0.5,
+    "style_ic_history_path": "",
+    "adaptive_style_strength": 0.5,
     "representatives_per_sector": 2,
     "representative_component_limit": 20,
     "mcp_enabled": False,
@@ -127,6 +133,8 @@ DEFAULT_CONFIG = _apply_env_overrides({
     ),
     "conversation_history_turns": 12,
     "conversation_tool_rounds": 4,
+    "conversation_supervisor_steps": 3,
+    "knowledge_upload_max_mb": 25,
     "news_article_limit": 20,
     "global_news_article_limit": 10,
     "global_news_lookback_days": 7,

@@ -40,6 +40,8 @@ class Propagator:
             "audit_report": "",
             "audit_status": "PENDING",
             "audit_feedback": "",
+            "audit_issues": [],
+            "audit_repair_target": "portfolio_manager",
             "audit_round": 0,
             "analyst_trace": [],
         }

@@ -191,6 +191,7 @@ def rank_sector_snapshots(
     anchor60: pd.DataFrame,
     *,
     market_regime: str = "Neutral",
+    style_weights_override: dict[str, float] | None = None,
 ) -> pd.DataFrame:
     """Rank all SW level-1 sectors with explicit style dimensions.
 
@@ -252,7 +253,18 @@ def rank_sector_snapshots(
     out["dividend_score"] = _pct_rank(dividend, higher_better=True).clip(0, 100)
     out["liquidity_score"] = (0.65 * pturn + 0.35 * pamount).clip(0, 100)
 
-    weights = sector_style_weights(market_regime)
+    weights = (
+        dict(style_weights_override)
+        if style_weights_override
+        else sector_style_weights(market_regime)
+    )
+    total_weight = sum(max(0.0, float(value)) for value in weights.values())
+    if total_weight <= 0:
+        raise ValueError("style_weights_override 权重和必须大于 0")
+    weights = {
+        key: max(0.0, float(weights.get(key, 0.0))) / total_weight
+        for key in ("momentum", "valuation", "dividend", "liquidity")
+    }
     out["rule_score_raw"] = (
         weights["momentum"] * out["momentum_score"]
         + weights["valuation"] * out["valuation_score"]
@@ -319,6 +331,7 @@ def analyze_sectors(
     market_regime: str = "Neutral",
     top_n: int = 10,
     fetcher=None,
+    style_weights_override: dict[str, float] | None = None,
 ) -> SectorRankingResult:
     as_of = _as_date(as_of_date)
     current_date, current = _fetch_day_near(as_of, fetcher=fetcher)
@@ -329,6 +342,7 @@ def analyze_sectors(
         anchor20,
         anchor60,
         market_regime=market_regime,
+        style_weights_override=style_weights_override,
     )
     if top_n > 0:
         ranked = ranked.head(top_n).reset_index(drop=True)

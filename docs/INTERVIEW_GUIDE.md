@@ -1,4 +1,4 @@
-# Interview Guide — A股 Sector Discovery + 7-Agent Research System
+# Interview Guide — A股 Conversation-first Agentic Research System
 
 > 目标：用这份文档在面试前 30~60 分钟快速复习项目。  
 > 项目定位：**研究辅助系统，不是自动交易系统**。  
@@ -10,19 +10,32 @@
 
 可以直接这样回答：
 
-> 这个项目基于 TradingAgents 做了比较深的二次开发。我没有继续堆更多 Agent，而是把问题拆成两层：前面用确定性 Python / 可选量化 Ranker 做 A 股行业研究优先级发现，后面只对少量代表性股票运行高成本的 7-Agent 深度研究。
+> 这个项目基于 TradingAgents 做了比较深的二次开发。当前 V1.7 的主入口不是固定全量研究图，而是 Conversation-first Supervisor：它先生成 Task Contract，再在原子 Tool、Market/News/Fundamentals 专业 Agent、任务级 Skill 和完整 Deep Research 之间选择最小必要能力；Completion Gate 显式判断任务是否完成，step limit 只是成本预算。ticker、日期、PIT 和安全边界仍由 deterministic Python 控制。完整多角色图被保留为高成本的 deep_stock_research Skill，而不是所有请求的默认路径。
 >
+
 > Discovery 侧先判断 Market Regime，再对全部申万一级行业计算 Momentum、Value、Dividend、Liquidity 四类 Style Score；Regime 只动态调整 Style 权重，不再像旧版那样用 Top Sector 对股票做硬门控。可选 LightGBM 作为二阶段横截面 Ranker，但 Rule Score 永远保留用于解释和 fallback。
 >
 > Top-K 行业之后，我增加了 Representative Research Pool：每个行业只根据行业指数权重、流动性、行业内相对强弱和数据完整性选 2~3 只研究入口，不用 PE、ROE、利润增长等指标再次偷偷做“选股”。这些代表股再进入 7-Agent。
 >
 > 7-Agent 主链是 Market / News / Fundamentals 三个 Analyst 并行，之后 Bull / Bear 并行，再由 Portfolio Manager 收敛，Decision Auditor 做独立审计。Analyst 使用私有 LangGraph Subgraph 和 ToolNode，支持 Local Tool / Finance MCP / PIT-aware RAG。
 >
-> 为了降低 Agent 之间的上下文重复，我还做了 Claim-aware Context Compression，把中间声明分成 FACT、CALCULATION、INFERENCE、CONDITIONAL；同时用 as_of_date / publish_date 做 PIT 数据约束，避免历史研究读取未来信息。
+> 为了降低上下文重复又不扼杀研究假设，我把 Claim-aware Context 拆成 Evidence Ledger 和 Hypothesis Ledger：FACT/CALCULATION 与 INFERENCE/CONDITIONAL 使用独立预算；同时 PIT 不只检查 as_of_date / publish_date，Style IC 还记录 available_date，只有 forward-return 标签真正成熟后才允许进入历史自适应权重。
 >
-> 最后我把 Agent Evaluation 和 Outcome Backtest 分开：前者评估 Tool Choice、PIT、Trajectory、Grounding，后者才看实际收益和基准超额，避免把“市场偶然涨跌”误当成 Agent 工程质量。
+> 最后我把 Agent Evaluation 和 Outcome Backtest 分开，并在 V1.7 增加 Single-Agent-All-Tools、Fixed Deep Research、Dynamic Supervisor 三系统基准框架，统一统计 Routing、Claim Grounding、Completion、PIT、Tool/LLM Calls、Token 和 Latency。只有真实跑完同模型、同工具、同 cutoff 的对照后，才允许声称复杂编排带来收益。
 
 ---
+
+## 1.1 面试先讲清：Agent vs Workflow vs Skill
+
+推荐直接说明：
+
+> 我不认为所有带 LLM 的节点都叫 Agent，也不认为所有任务都应该 Agent 化。Sector Discovery、PIT、数值计算和排序属于 deterministic workflow；Market/News/Fundamentals 是真正带 Tool Loop 的 Agent；Bull/Bear/PM/Auditor 是角色化推理节点；Deep Research、Document Evidence Analysis 等则包装成 Skill。Conversation Supervisor 负责根据用户目标选择这些能力。
+
+V1.5 另外补了两个闭环：
+
+- Auditor 发现缺证据时，不再只让 PM 改文字，而是通过 `repair_target` 定向让责任 Analyst 重新取证；
+- Research Version 使用 append-only SQLite 版本，返修后仍未通过审计且已有旧 PASS 版本时可自动 rollback；LangGraph Checkpoint 则只负责 crash resume。
+
 
 ## 2. 一张图讲清系统
 
@@ -511,7 +524,7 @@ candidate_context
 6. Portfolio Manager
 7. Decision Auditor
 
-不是越多越好。
+其中 Market / News / Fundamentals 具备 LLM ↔ ToolNode 的 Action-Observation-ReDecision Loop；Bull、Bear、Portfolio Manager、Auditor 更准确地属于 role-specialized reasoning nodes。不是越多越好。
 
 旧 TradingAgents 有更多角色、多轮辩论和 Risk Debate。
 
@@ -633,6 +646,7 @@ tradingagents/agents/analysts/fundamentals_analyst.py
 - get_balance_sheet
 - get_cashflow
 - get_income_statement
+- search_company_knowledge（RAG enabled 时，用于年报原文、财务附注、减值/会计政策等非结构化证据）
 
 关注：
 
@@ -1357,7 +1371,7 @@ Market -> News -> Fundamentals -> Bull -> Bear
 推荐坦诚回答：
 
 1. 申万历史成分数据不完整，因此历史 Representative Pool 有 survivor-bias 边界；
-2. Sector Rule Weight 目前是工程 baseline，还需要系统 walk-forward 验证；
+2. Sector Rule Weight 仍是默认 baseline；可选 Style IC Adapter 已加入 available_date PIT guard，但是否优于 Rule 仍需 walk-forward OOS 验证；
 3. LightGBM 目前是 adapter，不是已经证明有效的 alpha model；
 4. 第三方 AKShare / BaoStock / CNInfo 的稳定性受外部接口影响；
 5. LLM 输出仍存在非确定性，Auditor 只能降低而不能消灭 hallucination；
@@ -1369,7 +1383,7 @@ Market -> News -> Fundamentals -> Bull -> Bear
 
 推荐答：
 
-> 第一优先不是再加 Agent，而是量化工程收益：并行 vs 串行 P50/P95 latency、Token 消耗、Auditor REVISE rate、PIT violation rate、RAG Recall@K/MRR。量化模型侧会补 Sector Ranker 的时间滚动训练和 Rank IC / Top-K excess return；数据侧会寻找可恢复历史行业成分的数据源，解决 survivor bias。
+> 第一优先不是再加 Agent，而是把 V1.7 Benchmark 真正跑起来：Single-Agent-All-Tools vs Fixed Deep Research vs Dynamic Supervisor，在同模型、同工具、同 cutoff 下比较 Routing、Grounding、Completion、PIT、Token、Tool/LLM Calls 和 P50/P95 latency。量化侧再构造带 available_date 的 Style IC history 做 walk-forward Rule vs Adaptive 对照；数据侧继续解决历史行业成分完整性。
 
 ---
 
@@ -1482,6 +1496,38 @@ uvicorn service.app:app --host 0.0.0.0 --port 8000
 16. `tradingagents/rag/retriever.py`
 17. `tradingagents/conversation/agent.py`
 18. `tradingagents/evaluation/`
+
+---
+
+# 49. 面试官：为什么不用一个 GPT + 全部工具？
+
+答：
+
+> 这个问题不能靠架构直觉回答，所以 V1.7 专门实现了 Single-Agent-All-Tools baseline。它和 Supervisor 使用同一模型、同一工具目录和同一 as_of_date；Fixed Deep Research 则代表“每个问题都跑完整图”的另一端。Benchmark 分别统计 Routing、Claim Grounding、Completion、PIT、Tool/LLM Calls、Token 和 Latency。我的结论原则是：没有真实跑分前不声称 Multi-Agent 更好；如果 Single Agent 在某类问题质量相同但成本更低，Supervisor 就应该把这类请求路由到更轻路径。
+
+---
+
+# 50. 面试官：Supervisor 只有 3 步，不还是拍脑袋吗？
+
+答：
+
+> 3 步现在只是默认成本预算，不是完成条件。用户请求先转换成 Task Contract，包含 required entities、dimensions 和 critical requirements；每一步执行后 Completion Gate 都计算 completed / missing / evidence gaps。预算耗尽但关键项没覆盖时返回 PARTIAL，而不是伪装成完整回答。因此可以调预算，但任务完成语义不再依赖某个固定数字。
+
+---
+
+# 51. 面试官：Style IC 为什么还要 available_date？
+
+答：
+
+> 因为某天的 IC 是用未来 N 日收益计算的。假设 signal date 是 1 月 1 日、forward horizon 是 20 个交易日，那么这条 IC 在 1 月 1 日并不可知。如果历史回测只判断 signal date < as_of_date，就会把尚未成熟的未来标签泄漏进权重。V1.7 因此同时记录 available_date，Adaptive Style 只使用 available_date < as_of_date 的历史 IC；老 CSV 没有这个字段直接 fail closed 回到 Rule。
+
+---
+
+# 52. 面试官：你现在能证明 Supervisor 更好吗？
+
+答：
+
+> 现在能证明的是“评测框架已经可运行”，不能提前证明结果。仓库可以一条命令跑 Single-Agent、Fixed Deep Research 和 Dynamic Supervisor，并生成 raw_runs、per_case、summary 和 Markdown report。真正的架构结论必须等我在自己的 API 与数据环境中跑完后再写进 README；这是我刻意区分 engineering mechanism 和 empirical evidence 的地方。
 
 ---
 

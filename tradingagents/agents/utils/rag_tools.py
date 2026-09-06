@@ -22,6 +22,7 @@ def search_company_knowledge(
     ticker: Annotated[str, "股票代码，例如 600519.SH"],
     as_of_date: Annotated[str, "研究截止日期，格式 YYYY-MM-DD；检索结果发布日期不得晚于此日"],
     top_k: Annotated[int, "返回证据片段数量，建议 3~8"] = 6,
+    doc_type: Annotated[str | None, "可选文档类型过滤，如 annual_report / announcement"] = None,
 ) -> str:
     """PIT-aware hybrid RAG：Dense+BM25+RRF，并可选 Cross-Encoder Rerank。"""
 
@@ -37,6 +38,7 @@ def search_company_knowledge(
             top_k=max(1, min(int(top_k), 10)),
             candidate_k=int(config.get("rag_candidate_k", 30)),
             corpus_limit=int(config.get("rag_bm25_corpus_limit", 1000)),
+            doc_type=doc_type,
         )
     except Exception as exc:  # noqa: BLE001
         return f"RAG_UNAVAILABLE: {type(exc).__name__}: {exc}"
