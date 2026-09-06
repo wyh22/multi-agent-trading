@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tradingagents.dataflows.symbol_utils import normalize_a_share_symbol
+from tradingagents.rag.scope import normalize_knowledge_scope
 from tradingagents.rag.chunking import chunk_document
 from tradingagents.rag.embeddings import build_embedder
 from tradingagents.rag.loaders import load_documents
@@ -27,7 +27,7 @@ def ingest_path(
 ) -> dict:
     """Parse, chunk and upsert a user/company document into the configured RAG store."""
 
-    canonical = normalize_a_share_symbol(ticker)
+    canonical = normalize_knowledge_scope(ticker)
     docs = load_documents(
         path,
         ticker=canonical,
