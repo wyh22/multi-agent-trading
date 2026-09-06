@@ -184,7 +184,7 @@ def test_service_exposes_v16_status_and_temporal_provenance():
     source = (
         Path(__file__).resolve().parents[1] / "service" / "app.py"
     ).read_text(encoding="utf-8")
-    assert 'version="1.6"' in source
+    assert 'version="1.7"' in source
     assert 'publish_date_verified=False' in source
 
     conversation = (
