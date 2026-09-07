@@ -1,0 +1,78 @@
+skills:
+  - name: company_research
+    description: Analyze a listed company using financial, disclosure and evidence sources.
+    triggers:
+      - company analysis
+      - stock research
+      - fundamental analysis
+      - 公司分析
+      - 基本面分析
+    workflow:
+      - retrieve_company_context
+      - collect_financial_data
+      - retrieve_disclosure_evidence
+      - generate_research_summary
+    tools:
+      - fundamentals
+      - news
+      - rag_search
+    constraints:
+      - no_investment_advice
+      - respect_as_of_date
+
+  - name: deep_research
+    description: Execute a multi-stage evidence based research workflow.
+    triggers:
+      - deep research
+      - comprehensive analysis
+      - 深度研究
+      - 综合分析
+    workflow:
+      - task_decomposition
+      - parallel_information_collection
+      - evidence_validation
+      - report_generation
+    tools:
+      - market
+      - fundamentals
+      - news
+      - rag_search
+    constraints:
+      - require_evidence
+      - prevent_future_information_leakage
+
+  - name: document_analysis
+    description: Analyze financial and disclosure documents.
+    triggers:
+      - annual report
+      - financial report
+      - 年报分析
+      - 文档分析
+    workflow:
+      - parse_document
+      - retrieve_context
+      - summarize_document
+    tools:
+      - rag_search
+
+  - name: company_comparison
+    description: Compare multiple listed companies using normalized evidence.
+    triggers:
+      - compare companies
+      - company comparison
+      - 公司对比
+    workflow:
+      - collect_company_profiles
+      - normalize_metrics
+      - generate_comparison
+
+  - name: industry_discovery
+    description: Discover representative companies within an industry.
+    triggers:
+      - industry discovery
+      - sector analysis
+      - 行业发现
+    workflow:
+      - identify_sector
+      - retrieve_candidates
+      - rank_candidates
