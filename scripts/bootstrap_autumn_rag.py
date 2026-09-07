@@ -60,6 +60,16 @@ def main():
     parser.add_argument("--annual-year", type=int, default=annual_default)
     parser.add_argument("--interim-year", type=int, default=interim_default)
     parser.add_argument("--max-docs-per-company", type=int, default=3)
+    parser.add_argument(
+        "--max-download-mb",
+        type=int,
+        default=200,
+        help=(
+            "Maximum size per remote disclosure when --ingest is used. "
+            "Some official annual reports exceed the generic rag_ingest.py "
+            "50MB default because of images and appendices."
+        ),
+    )
     parser.add_argument("--attempts", type=int, default=2)
     parser.add_argument(
         "--stop-after-consecutive-failures",
@@ -198,6 +208,7 @@ def main():
         "target_documents": (
             len(universe["stocks"]) * args.max_docs_per_company
         ),
+        "max_download_mb": args.max_download_mb,
         "companies": company_reports,
         "failures": failures,
         "manifest": str(args.manifest),
@@ -226,6 +237,8 @@ def main():
             str(PROJECT_ROOT / "scripts" / "rag_ingest.py"),
             "--manifest",
             str(args.manifest),
+            "--max-download-mb",
+            str(args.max_download_mb),
         ]
         print("ingesting selected corpus into Qdrant...", flush=True)
         subprocess.run(command, cwd=PROJECT_ROOT, check=True)
