@@ -1,6 +1,6 @@
 import pandas as pd
 
-from tradingagents.rag.bootstrap import select_high_value_disclosures
+from tradingagents.rag.bootstrap import _normalize_url, select_high_value_disclosures
 from tradingagents.rag.evidence_pack import (
     build_retrieval_queries,
     source_document_key,
@@ -244,6 +244,17 @@ def test_autumn_bootstrap_selects_high_value_generic_filings():
         "investor_relation",
     ]
     assert all("summary.pdf" not in item.url for item in selected)
+
+
+def test_autumn_bootstrap_converts_cninfo_detail_url_to_static_pdf():
+    detail_url = (
+        "http://www.cninfo.com.cn/new/disclosure/detail?"
+        "stockCode=600519&announcementId=1225114741&"
+        "orgId=gssh0600519&announcementTime=2026-04-17%2000:00:00"
+    )
+    assert _normalize_url(detail_url) == (
+        "https://static.cninfo.com.cn/finalpage/2026-04-17/1225114741.PDF"
+    )
 
 
 def test_autumn_bootstrap_falls_back_to_q1_without_ir_record():
