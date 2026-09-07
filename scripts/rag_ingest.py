@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import tempfile
+import time
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -22,12 +24,46 @@ from tradingagents.rag.scope import normalize_scope
 
 
 SUPPORTED_SUFFIXES = {".pdf", ".docx", ".txt", ".md", ".markdown"}
+CNINFO_STATIC_HOST = "https://static.cninfo.com.cn"
+DOWNLOAD_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    ),
+    "Accept": "application/pdf,application/octet-stream,*/*",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
+
+
+def _cninfo_static_pdf_url_from_detail(url: str) -> str:
+    parsed = urlparse(str(url or "").strip())
+    if "cninfo.com.cn" not in parsed.netloc or "/new/disclosure/detail" not in parsed.path:
+        return ""
+    query = parse_qs(parsed.query)
+    announcement_id = (query.get("announcementId") or [""])[0].strip()
+    announcement_time = (query.get("announcementTime") or [""])[0].strip()
+    publish_date = announcement_time[:10]
+    if not announcement_id or not re.match(r"^\d{4}-\d{2}-\d{2}$", publish_date):
+        return ""
+    return f"{CNINFO_STATIC_HOST}/finalpage/{publish_date}/{announcement_id}.PDF"
+
+
+def _normalize_download_url(url: str) -> str:
+    raw = str(url or "").strip()
+    if raw.startswith("http://"):
+        raw = "https://" + raw[len("http://") :]
+    detail_pdf_url = _cninfo_static_pdf_url_from_detail(raw)
+    if detail_pdf_url:
+        return detail_pdf_url
+    return raw
 
 
 def _download_url(url: str, *, max_mb: int = 50) -> Path:
     import requests
 
-    parsed = urlparse(url)
+    download_url = _normalize_download_url(url)
+    parsed = urlparse(download_url)
     if parsed.scheme not in {"http", "https"}:
         raise ValueError("URL ingestion only supports http/https")
 
@@ -35,13 +71,27 @@ def _download_url(url: str, *, max_mb: int = 50) -> Path:
     if suffix not in SUPPORTED_SUFFIXES:
         suffix = ".pdf"
 
-    response = requests.get(
-        url,
-        stream=True,
-        timeout=(10, 60),
-        headers={"User-Agent": "TradingAgents-RAG/1.0"},
-    )
-    response.raise_for_status()
+    response = None
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                download_url,
+                stream=True,
+                timeout=(10, 60),
+                headers=DOWNLOAD_HEADERS,
+            )
+            response.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            last_error = exc
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if status_code in RETRYABLE_HTTP_STATUS and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            raise
+    else:  # pragma: no cover - defensive; loop either breaks or raises
+        raise RuntimeError(f"failed to download remote document: {last_error}")
 
     max_bytes = max(1, int(max_mb)) * 1024 * 1024
     total = 0
