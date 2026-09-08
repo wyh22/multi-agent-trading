@@ -509,15 +509,6 @@ python scripts/build_style_ic_history.py \
 在没有真实 benchmark / walk-forward 结果前，README 与面试中都不应声称
 Supervisor 或 Adaptive Style 已经带来确定的准确率、收益率或成本提升。
 
-## 秋招 RAG 快速建库
-
-仓库提供一个小规模、跨行业的首批 RAG corpus profile：10 只代表性 A 股，每家公司自动选择上一年度年报、本年度半年报，以及最新投资者关系活动记录（缺失时回退一季报），目标约 30 份正式披露。
-
-~~~bash
-python scripts/bootstrap_autumn_rag.py --ingest
-~~~
-
-该 profile 只用于快速建立可演示、可评测的真实语料基线；RAG 核心仍是通用的 company / industry / market / macro / regulation 分层知识库，不绑定这 10 只股票。
 
 ## 文档
 
