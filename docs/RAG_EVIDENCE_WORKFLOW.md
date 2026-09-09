@@ -349,3 +349,56 @@ results/rag_bootstrap/autumn_rag_bootstrap_report.json
 ~~~
 
 这只是秋招演示/评测的首批 corpus profile，RAG 核心仍然支持任意 A 股和任意行业。
+
+## 13. Retrieval Benchmark
+
+RAG 检索质量不再只通过“能不能搜到结果”判断。仓库提供独立 Retrieval Benchmark，将检索层和 LLM 生成层拆开评估。
+
+Starter query set：
+
+~~~text
+evaluation/datasets/rag_retrieval_queries_v1.jsonl
+~~~
+
+当前包含 9 家已实际入库公司 × 5 类通用研究问题，共 45 个 query。该文件只定义 query，不预填 Ground Truth，避免伪造召回率。
+
+先通过 Dense / BM25 / Hybrid RRF / Hybrid + Reranker 多路召回生成 pooled annotation worksheet：
+
+~~~bash
+python scripts/run_rag_retrieval_benchmark.py prepare \
+  --dataset evaluation/datasets/rag_retrieval_queries_v1.jsonl \
+  --output evaluation/data/rag_retrieval_annotations_v1.csv
+~~~
+
+人工检查原文证据并填写：
+
+~~~text
+relevance = 0  不相关
+relevance = 1  相关背景
+relevance = 2  高相关证据
+relevance = 3  可直接回答问题的核心证据
+~~~
+
+完成标注后：
+
+~~~bash
+python scripts/run_rag_retrieval_benchmark.py run \
+  --dataset evaluation/datasets/rag_retrieval_queries_v1.jsonl \
+  --annotations evaluation/data/rag_retrieval_annotations_v1.csv \
+  --output results/rag_retrieval_benchmark_v1 \
+  --ks 5,10
+~~~
+
+评测指标包括：
+
+- Evidence Recall@K；
+- Parent-document Recall@K；
+- Precision@K / HitRate@K；
+- MRR@K；
+- graded nDCG@K；
+- PIT violation rate；
+- retrieval latency。
+
+同一 benchmark 中保持 corpus、as_of_date、candidate_k、BM25 corpus_limit、Top-K 和 parent-document cap 一致，仅切换 retrieval strategy，才能把 Dense、BM25、RRF 和 Reranker 的贡献做成真正的消融实验。
+
+在人工 Query→Evidence Ground Truth 完成前，不应在 README、简历或面试中声称“RAG 召回率达到 XX%”。完整协议见 [RAG_RETRIEVAL_BENCHMARK.md](RAG_RETRIEVAL_BENCHMARK.md)。

@@ -44,6 +44,7 @@
 | Decision Auditor | PASS / REVISE + repair_target | 检查无依据推断，并把缺失证据定向路由给责任 Agent |
 | Optional MCP Adapter | 默认关闭；Streamable HTTP + Local fallback + allowlist | 仅在远程/跨进程/第三方工具接入时作为部署边界，不是 Agent 核心依赖 |
 | Project-wide Hybrid RAG | company / industry / market / macro / regulation 分层 + Dense + BM25 + RRF + Reranker + Temporal Provenance | 任意 A 股按层级召回长文档证据；未验证发布日期文档不会进入历史 PIT 检索 |
+| RAG Retrieval Benchmark | Recall@K / DocumentRecall / MRR / nDCG / PIT violation + Dense/BM25/RRF/Reranker ablation | 用人工标注 Query→Evidence 数据验证混合检索设计，不在无 Ground Truth 时宣称召回率 |
 | 多轮会话 | Supervisor + Task Contract + thread_id + SQLite | 返回 COMPLETE / PARTIAL / REVIEW_REQUIRED / DATA_UNAVAILABLE / SYSTEM_ERROR，并支持 HITL 继续补查 |
 | Research Rollback | Immutable SQLite research versions | 恢复上一版/指定版本；与 crash checkpoint 分离 |
 | Architecture Benchmark | Single Agent / Fixed Deep Research / Dynamic Supervisor + Routing / Grounding / Completion / PIT / Token / Latency | 用同条件实验检验复杂编排是否真的值得 |
@@ -471,6 +472,37 @@ publish_date <= as_of_date
 - 行业发现结果是 Sector Research Shortlist，不是个股买入清单或收益承诺。
 - 本项目不执行自动下单，不提供真实资金交易接口。
 
+## RAG Retrieval Benchmark
+
+RAG 检索层支持独立于 LLM 的可复现实验。仓库提供 45 个秋招语料 starter queries，并通过 pooled annotation 构建人工 Query→Evidence Ground Truth，再对比：
+
+```text
+Dense only
+BM25 only
+Dense + BM25 + RRF
+Dense + BM25 + RRF + Cross-Encoder Reranker
+```
+
+准备人工标注候选：
+
+```bash
+python scripts/run_rag_retrieval_benchmark.py prepare \
+  --dataset evaluation/datasets/rag_retrieval_queries_v1.jsonl \
+  --output evaluation/data/rag_retrieval_annotations_v1.csv
+```
+
+完成 relevance=0/1/2/3 标注后运行：
+
+```bash
+python scripts/run_rag_retrieval_benchmark.py run \
+  --dataset evaluation/datasets/rag_retrieval_queries_v1.jsonl \
+  --annotations evaluation/data/rag_retrieval_annotations_v1.csv \
+  --output results/rag_retrieval_benchmark_v1 \
+  --ks 5,10
+```
+
+自动输出 Evidence Recall@K、Document Recall@K、Precision@K、HitRate@K、MRR@K、nDCG@K、PIT violation rate 和 latency。**在人工标注完成前，仓库不宣称任何 Recall@K 数值。**详见 [docs/RAG_RETRIEVAL_BENCHMARK.md](docs/RAG_RETRIEVAL_BENCHMARK.md)。
+
 ## V1.7 架构 Benchmark
 
 V1.7 不再增加 Agent，而是把“为什么不用一个 LLM + 全工具”变成可运行实验。
@@ -521,6 +553,7 @@ Supervisor 或 Adaptive Style 已经带来确定的准确率、收益率或成�
 - [FINAL_ARCHITECTURE.md](FINAL_ARCHITECTURE.md)：7-Agent、Subgraph、Fan-Out/Fan-In、Auditor
 - [MCP_RAG_DOCKER_GUIDE.md](MCP_RAG_DOCKER_GUIDE.md)：MCP、Qdrant Hybrid RAG、Docker
 - [RAG_EVIDENCE_WORKFLOW.md](docs/RAG_EVIDENCE_WORKFLOW.md)：项目级 company / industry / market / macro / regulation 分层知识库、Manifest 批量入库与 PIT 检索
+- [RAG_RETRIEVAL_BENCHMARK.md](docs/RAG_RETRIEVAL_BENCHMARK.md)：人工标注 Query→Evidence、Recall@K/MRR/nDCG、PIT violation 与 Dense/BM25/RRF/Reranker 消融评测
 - [docs/V1_7_BENCHMARK.md](docs/V1_7_BENCHMARK.md)：三架构 Benchmark、Telemetry、Grounding/Completion/PIT 指标与 PIT-safe Style IC
 - [docs/V1_6_HARDENING.md](docs/V1_6_HARDENING.md)：Task Contract、Completion、显式降级、Temporal Provenance、Evaluation 与 remaining boundaries
 - [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback
