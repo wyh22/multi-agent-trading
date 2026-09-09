@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tradingagents"
 version = "1.7.0"
-description = "基于 TradingAgents 二次开发的 A 股多智能体智能投研与候选发现系统"
+description = "基于 TradingAgents 二次开发的 A 股对话式 Agentic Research 与证据增强系统"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
@@ -73,7 +73,7 @@ include = ["tradingagents*", "cli*"]
 exclude = ["tests*", "evaluation*"]
 
 [tool.setuptools.package-data]
-"tradingagents.skills" = ["manifests/*.yaml"]
+"tradingagents.skills" = ["manifests/*.yaml", "*/SKILL.md"]
 
 [tool.ruff]
 line-length = 120
