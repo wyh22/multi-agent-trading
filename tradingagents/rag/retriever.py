@@ -187,8 +187,29 @@ class HybridKnowledgeRetriever:
         max_chunks_per_doc: int = 2,
         industry: str | None = None,
         include_shared_scopes: bool = True,
+        strategy: str = "hybrid",
+        use_reranker: bool | None = None,
     ) -> list[RetrievalHit]:
-        # Qdrant filter is the first PIT gate; final date check below is a defense-in-depth gate.
+        """Retrieve PIT-safe evidence with selectable ablation strategies.
+
+        strategy:
+            dense  -> Qdrant dense retrieval only
+            bm25   -> local BM25 over the PIT/scope-filtered corpus
+            hybrid -> Dense + BM25 fused by reciprocal-rank fusion
+
+        use_reranker=None preserves the production default: use the configured
+        reranker when available. Retrieval benchmarks pass it explicitly so
+        hybrid and hybrid+reranker can be compared fairly.
+        """
+
+        strategy = str(strategy or "hybrid").strip().lower()
+        if strategy not in {"dense", "bm25", "hybrid"}:
+            raise ValueError(
+                "strategy must be one of: dense, bm25, hybrid"
+            )
+
+        # Qdrant filter is the first PIT gate; final date checks below are a
+        # defense-in-depth gate for every retrieval strategy.
         cutoff = date.fromisoformat(as_of_date[:10])
         industries: list[str] = []
         if industry and str(industry).strip():
@@ -204,59 +225,109 @@ class HybridKnowledgeRetriever:
         if include_shared_scopes:
             scope_ids.extend(default_shared_scope_ids())
         scope_ids = list(dict.fromkeys(scope_ids))
-        dense = [
-            item
-            for item in self.store.query_dense(
-                query,
-                scope_ids=scope_ids,
-                as_of_date=as_of_date,
-                legacy_ticker=ticker,
-                limit=candidate_k,
-                doc_type=doc_type,
-            )
-            if _publication_date_is_pit_safe(item[0], cutoff)
-        ]
-        corpus = [
-            chunk
-            for chunk in self.store.scroll_chunks(
-                scope_ids=scope_ids,
-                as_of_date=as_of_date,
-                legacy_ticker=ticker,
-                limit=corpus_limit,
-                doc_type=doc_type,
-            )
-            if _publication_date_is_pit_safe(chunk, cutoff)
-        ]
-        sparse_scores = bm25_scores(query, corpus)
-        sparse = sorted(zip(corpus, sparse_scores, strict=True), key=lambda x: x[1], reverse=True)[:candidate_k]
+
+        dense: list[tuple[KnowledgeChunk, float]] = []
+        if strategy in {"dense", "hybrid"}:
+            dense = [
+                item
+                for item in self.store.query_dense(
+                    query,
+                    scope_ids=scope_ids,
+                    as_of_date=as_of_date,
+                    legacy_ticker=ticker,
+                    limit=candidate_k,
+                    doc_type=doc_type,
+                )
+                if _publication_date_is_pit_safe(item[0], cutoff)
+            ]
+
+        sparse: list[tuple[KnowledgeChunk, float]] = []
+        if strategy in {"bm25", "hybrid"}:
+            corpus = [
+                chunk
+                for chunk in self.store.scroll_chunks(
+                    scope_ids=scope_ids,
+                    as_of_date=as_of_date,
+                    legacy_ticker=ticker,
+                    limit=corpus_limit,
+                    doc_type=doc_type,
+                )
+                if _publication_date_is_pit_safe(chunk, cutoff)
+            ]
+            sparse_scores = bm25_scores(query, corpus)
+            sparse = sorted(
+                zip(corpus, sparse_scores, strict=True),
+                key=lambda x: x[1],
+                reverse=True,
+            )[:candidate_k]
 
         rrf = defaultdict(float)
-        dense_score = {}
-        sparse_score = {}
+        dense_score: dict[str, float] = {}
+        sparse_score: dict[str, float] = {}
         chunks: dict[str, KnowledgeChunk] = {}
+
         for rank, (chunk, score) in enumerate(dense, start=1):
             chunks[chunk.chunk_id] = chunk
             dense_score[chunk.chunk_id] = score
-            rrf[chunk.chunk_id] += 1.0 / (self.rrf_k + rank)
+            if strategy == "hybrid":
+                rrf[chunk.chunk_id] += 1.0 / (self.rrf_k + rank)
+
         for rank, (chunk, score) in enumerate(sparse, start=1):
             chunks[chunk.chunk_id] = chunk
             sparse_score[chunk.chunk_id] = score
-            rrf[chunk.chunk_id] += 1.0 / (self.rrf_k + rank)
+            if strategy == "hybrid":
+                rrf[chunk.chunk_id] += 1.0 / (self.rrf_k + rank)
 
-        ordered = [
-            cid for cid, _ in sorted(rrf.items(), key=lambda x: x[1], reverse=True)
-            if date.fromisoformat(chunks[cid].publish_date) <= cutoff
-        ]
+        if strategy == "dense":
+            ordered = [
+                chunk.chunk_id
+                for chunk, _ in dense
+                if date.fromisoformat(chunk.publish_date) <= cutoff
+            ]
+            base_score = dense_score
+        elif strategy == "bm25":
+            ordered = [
+                chunk.chunk_id
+                for chunk, _ in sparse
+                if date.fromisoformat(chunk.publish_date) <= cutoff
+            ]
+            base_score = sparse_score
+        else:
+            ordered = [
+                cid
+                for cid, _ in sorted(
+                    rrf.items(),
+                    key=lambda x: x[1],
+                    reverse=True,
+                )
+                if date.fromisoformat(chunks[cid].publish_date) <= cutoff
+            ]
+            base_score = rrf
 
         rerank_scores: dict[str, float] = {}
-        if self.reranker and ordered:
+        rerank_enabled = (
+            self.reranker is not None
+            if use_reranker is None
+            else bool(use_reranker and self.reranker is not None)
+        )
+        if rerank_enabled and ordered:
             rerank_pool = ordered[: max(top_k * 3, top_k)]
-            docs = [chunks[cid].title + "\n" + chunks[cid].text for cid in rerank_pool]
-            for cid, score in zip(rerank_pool, self.reranker.rerank(query, docs), strict=True):
+            docs = [
+                chunks[cid].title + "\n" + chunks[cid].text
+                for cid in rerank_pool
+            ]
+            for cid, score in zip(
+                rerank_pool,
+                self.reranker.rerank(query, docs),
+                strict=True,
+            ):
                 rerank_scores[cid] = float(score)
             ordered = sorted(
                 ordered,
-                key=lambda cid: (rerank_scores.get(cid, float("-inf")), rrf[cid]),
+                key=lambda cid: (
+                    rerank_scores.get(cid, float("-inf")),
+                    base_score.get(cid, float("-inf")),
+                ),
                 reverse=True,
             )
 
@@ -271,7 +342,10 @@ class HybridKnowledgeRetriever:
             hits.append(
                 RetrievalHit(
                     chunk=chunk,
-                    score=rerank_scores.get(cid, rrf[cid]),
+                    score=rerank_scores.get(
+                        cid,
+                        float(base_score.get(cid, 0.0)),
+                    ),
                     dense_score=dense_score.get(cid),
                     bm25_score=sparse_score.get(cid),
                     rerank_score=rerank_scores.get(cid),
