@@ -1,6 +1,14 @@
 name: deep_stock_research
-description: 完整单股研究，按需运行 Market/News/Fundamentals、Bull/Bear、Portfolio Manager 与 Auditor。
+description: 完整单股多阶段研究，运行 Market/News/Fundamentals、Bull/Bear、Portfolio Manager 与 Auditor。
 requires_ticker: true
 requires_audit: true
 allowed_agents: [market, news, fundamentals]
+when_to_use:
+  - 用户要求完整、全面或跨行情/新闻/基本面的综合单股研究
+  - 任务需要多类证据共同支撑最终研究结论
+constraints:
+  - research_only
+  - evidence_required
+  - respect_as_of_date
+  - bounded_audit_repair
 completion: 最终研究结论必须经过 Auditor，REVISE 时进入定向修复回路。
