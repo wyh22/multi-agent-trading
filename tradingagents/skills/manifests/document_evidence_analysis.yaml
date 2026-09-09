@@ -3,4 +3,11 @@ description: 对已入库 PDF/DOCX/公告/财报执行 PIT-aware 混合检索并
 requires_ticker: true
 requires_audit: false
 allowed_agents: [news, fundamentals]
+when_to_use:
+  - 用户要求从财报、公告或投资者关系材料中补充原文证据
+  - 上一轮研究存在文档型 evidence gap，需要通过共享 RAG 定向补查
+constraints:
+  - rag_required
+  - preserve_provenance
+  - respect_as_of_date
 completion: 回答必须保留文档来源和发布日期语义，不得将检索缺失解释为事实不存在。
