@@ -1,6 +1,12 @@
 name: company_comparison
-description: 对多个公司执行可比维度研究并综合差异，复杂事实仍由专业 Agent 获取。
+description: 对多个公司执行可比维度研究并综合差异，事实必须来自各标的独立证据。
 requires_ticker: false
 requires_audit: false
 allowed_agents: [market, news, fundamentals]
+when_to_use:
+  - 用户明确提供至少两个股票代码并要求横向比较
+constraints:
+  - at_least_two_tickers
+  - independent_evidence_per_company
+  - respect_as_of_date
 completion: 至少两个标的，比较结论必须来自各标的独立证据。
