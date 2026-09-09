@@ -162,7 +162,7 @@ class ConversationAgent:
                 CapabilitySpec(
                     name=skill.name,
                     kind="skill",
-                    description=skill.description,
+                    description=skill.routing_description()[:520],
                     requires_ticker=skill.requires_ticker,
                     expensive=skill.name
                     in {"deep_stock_research", "company_comparison"},

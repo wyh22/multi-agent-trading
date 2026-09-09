@@ -1,5 +1,5 @@
 # A 股 Agentic Research System
-### Conversation-first A-Share Research, Evidence Retrieval & Audited Multi-Agent Workflow
+### Conversation-first A-Share Research, Evidence Retrieval & Audited Agentic Workflow
 
 [![CI](https://github.com/wyh22/multi-agent-trading/actions/workflows/ci.yml/badge.svg)](https://github.com/wyh22/multi-agent-trading/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue)
@@ -20,6 +20,7 @@
 - 用确定性 Python 完成 **A 股行业发现与 Style Ranking**，Market Regime 只调整 Momentum / Value / Dividend / Liquidity 权重，不再通过 Top 行业硬门控个股；Top-K 行业之后再用行业权重、流动性、行业内相对强弱和数据完整性选择 Representative Research Entries；
 - 用 **Point-in-Time（PIT）数据约束**限制历史时点可见信息，降低未来数据泄漏；
 - 使用 **Conversation-first Supervisor + Task Contract + Completion Gate**：根据用户对话动态选择原子 Tool、专业 Agent、Skill 或完整 Deep Research；Supervisor step limit 只是成本预算，未覆盖完用户要求时显式返回 PARTIAL；
+- 使用 **声明式 Skill Contract** 管理可复用任务能力：`sector_discovery`、`document_evidence_analysis`、`company_comparison`、`deep_stock_research` 由运行时 YAML manifest 描述适用场景、约束与完成条件，并提供对应 `SKILL.md` 供代码评审和面试演示；Supervisor 直接消费这些运行时元数据，不维护第二套关键词路由；
 - 完整研究仍保留两阶段 Fan-Out/Fan-In，并把它包装成高成本 `deep_stock_research` Skill；
 - 在 Agent 之间引入 **Evidence Ledger + Hypothesis Ledger**：FACT/CALCULATION 与 INFERENCE/CONDITIONAL 使用独立上下文预算，既防止推断升级为事实，也避免研究假设被保守压缩抹掉；
 - 增加 **Decision Auditor + targeted repair**：对最终结论做事实、数字、PIT 与证据一致性检查，REVISE 时可定向让 Market / News / Fundamentals 重新取证，再由 PM 重综合；
@@ -33,11 +34,12 @@
 | 模块 | 实现 | 解决的问题 |
 | --- | --- | --- |
 | Conversation Supervisor | LLM routing + Task Contract + Completion Gate + bounded Re-decision | 按任务复杂度组合能力，并显式判断 COMPLETE / PARTIAL |
+| Declarative Skills | Runtime YAML manifest + `SKILL.md` + Capability Registry | 将行业发现、文档证据分析、公司对比和完整研究标准化为可复用任务能力，不额外制造自治 Agent |
 | Deep Research Skill | Market / News / Fundamentals → Bull & Bear → Portfolio Manager → Auditor | 只在复杂综合研究时启用完整多角色图 |
 | 并行执行 | Analyst Subgraph + Fan-Out/Fan-In | 降低串行 Agent 延迟 |
 | Dual Research Ledger | Evidence: FACT/CALCULATION；Hypothesis: INFERENCE/CONDITIONAL | 同时保留事实保真与发散研究假设 |
 | A 股行业发现 | Regime Rule + 可选 PIT-safe trailing Style IC adapter + 可选 LightGBM | 保留可解释 Rule fallback，同时允许有历史验证数据时做 walk-forward 权重修正 |
-| Representative Pool | 行业权重 + 流动性 + 行业内相对强弱 + 数据完整性 | 从 Top 行业选择 7-Agent 研究入口，不把研究路由伪装成投资评级 |
+| Representative Pool | 行业权重 + 流动性 + 行业内相对强弱 + 数据完整性 | 从 Top 行业选择深度研究入口，不把研究路由伪装成投资评级 |
 | PIT 数据治理 | 披露日/发布日期截止过滤 | 降低未来函数与历史穿越 |
 | Decision Auditor | PASS / REVISE + repair_target | 检查无依据推断，并把缺失证据定向路由给责任 Agent |
 | Optional MCP Adapter | 默认关闭；Streamable HTTP + Local fallback + allowlist | 仅在远程/跨进程/第三方工具接入时作为部署边界，不是 Agent 核心依赖 |
@@ -315,7 +317,7 @@ multi-agent-trading/
 │   ├── conversation/    # 多轮会话、研究版本与 rollback
 │   ├── orchestration/   # Conversation Supervisor / Specialist executor
 │   ├── capabilities/    # Tool / Agent / Skill capability registry
-│   ├── skills/          # 声明式 Skill manifests
+│   ├── skills/          # 运行时 YAML manifest + SKILL.md 声明式任务规范
 │   ├── mcp/             # Finance MCP Server / adapters
 │   ├── rag/             # Shared Qdrant Hybrid RAG + PDF/DOCX/TXT/MD ingestion
 │   ├── evaluation/      # Agent 轨迹、PIT、工具调用与报告质量评测
@@ -522,6 +524,7 @@ Supervisor 或 Adaptive Style 已经带来确定的准确率、收益率或成�
 - [docs/V1_7_BENCHMARK.md](docs/V1_7_BENCHMARK.md)：三架构 Benchmark、Telemetry、Grounding/Completion/PIT 指标与 PIT-safe Style IC
 - [docs/V1_6_HARDENING.md](docs/V1_6_HARDENING.md)：Task Contract、Completion、显式降级、Temporal Provenance、Evaluation 与 remaining boundaries
 - [docs/V1_5_SUPERVISOR_ARCHITECTURE.md](docs/V1_5_SUPERVISOR_ARCHITECTURE.md)：Conversation-first Supervisor、Capability/Skill、Shared RAG、Audit Repair 与 Rollback
+- [DECLARATIVE_SKILL_ARCHITECTURE.md](docs/DECLARATIVE_SKILL_ARCHITECTURE.md)：运行时 Skill manifest、SKILL.md 规范、Supervisor 路由边界与 Agent/Workflow/Skill 定义
 - [V1.4_VALIDATION.md](V1.4_VALIDATION.md)：当前离线验证边界
 
 ## 二次开发与许可证

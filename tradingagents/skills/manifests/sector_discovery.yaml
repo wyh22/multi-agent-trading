@@ -3,4 +3,11 @@ description: 确定性行业发现与代表性研究池构建，不让 LLM 直�
 requires_ticker: false
 requires_audit: false
 allowed_agents: []
+when_to_use:
+  - 用户要求行业发现、行业研究优先级或 Sector shortlist
+  - 用户要求构建代表性研究池而不是直接生成个股买入结论
+constraints:
+  - deterministic_ranking
+  - pit_safe
+  - research_priority_not_buy_list
 completion: 返回 PIT-safe 行业研究优先级或代表性研究池。
