@@ -306,7 +306,7 @@ class HybridKnowledgeRetriever:
 
         rerank_scores: dict[str, float] = {}
         rerank_enabled = (
-            self.reranker is not None
+            self.reranker is not None and strategy == "hybrid"
             if use_reranker is None
             else bool(use_reranker and self.reranker is not None)
         )
